@@ -28,6 +28,7 @@ public class Server
     public string Token;
     public readonly BlockingCollection<Command> Commands = new BlockingCollection<Command>();
     public Func<Dictionary<string, object>> GetSnapshot = delegate { return new Dictionary<string, object>(); };
+    public Func<Dictionary<string, object>> GetApp;   // v15.1: app.* at serve time (the download % between publishes)
     public Action<Exception> OnCrash = delegate { };
     public byte[] IndexHtml = new byte[0], LogicJs = new byte[0];
     long lastStateGetMs;   // the countdown only auto-starts while a page is polling (plan §3)
@@ -150,7 +151,9 @@ public class Server
         {
             Interlocked.Exchange(ref lastStateGetMs, Rules.NowMs());
             long since = 0; long.TryParse(q.QueryString["since"] ?? "0", out since);
-            SendJson(ctx, 200, Filter(GetSnapshot(), since));
+            Dictionary<string, object> st = Filter(GetSnapshot(), since);
+            if (GetApp != null) { try { st["app"] = GetApp(); } catch { } }
+            SendJson(ctx, 200, st);
             if (Interlocked.Exchange(ref firstStateDone, 1) == 0) { try { OnFirstState(); } catch { } }
             return;
         }
@@ -182,7 +185,8 @@ public class Server
         if (name == "start") return true;   // test hook only; the release build has no such route
 #endif
         return name == "heartbeat" || name == "stop" || name == "ack-alarm" || name == "alarm-pct" || name == "save-csv"
-            || name == "arm" || name == "cancel" || name == "new";
+            || name == "arm" || name == "cancel" || name == "new"
+            || name == "update-restart" || name == "update-retry" || name == "open-report";   // v15.1
     }
 
     static Dictionary<string, object> Err(string m)

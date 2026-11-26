@@ -49,6 +49,7 @@ static class HelperTests
             ContractShapes(File.ReadAllText(index));
             AuditFixes(File.ReadAllText(index));
             V15Tests.Run(delegate(bool c, string w) { Ok(c, w); }, delegate(object a, object b, string w) { Eq(a, b, w); }, delegate(string n) { Section(n); }, exe);
+            V151Tests.Run(delegate(bool c, string w) { Ok(c, w); }, delegate(object a, object b, string w) { Eq(a, b, w); }, delegate(string n) { Section(n); });
             CsvRoundTrip();
             Parsers();
             PeFlags(exe);
@@ -266,12 +267,15 @@ static class HelperTests
         Engine en = FakeDone(indexHtml);
         en.Publish();
         Dictionary<string, object> s = Server.Filter(en.Snapshot, 0);
-        HasKeys(s, "state", "rev", "version", "nowMs", "checks", "armed", "countdownEndsMs", "app", "unit", "batteries", "now", "session", "samples", "events", "result");
+        HasKeys(s, "state", "rev", "version", "nowMs", "checks", "armed", "countdownEndsMs", "nextStep", "app", "live", "unit", "batteries", "now", "session", "samples", "events", "result");
+        HasKeys(s["app"], "app", "version", "release", "updatedFrom", "updateNote", "update");
+        HasKeys(((Dictionary<string, object>)s["app"])["update"], "app.update", "phase", "version", "bytes", "total", "percent", "note");
+        HasKeys(s["live"], "live", "avgW", "etaToAlarmS", "healthPct");
         Eq(AppVersion.Version, s["version"], "version");
         HasKeys(s["unit"], "unit", "maker", "model", "serial", "computerName");
         foreach (object b in (IList)s["batteries"]) HasKeys(b, "batteries[]", "id", "maker", "chemistry", "designMwh", "fullMwh", "fullEndMwh", "cycles");
         HasKeys(s["now"], "now", "pct", "mwh", "fullMwh", "rateMw", "ac", "charging", "saver");
-        HasKeys(s["session"], "session", "id", "status", "startedMs", "alarmPct", "alarmPctMax", "alarm", "alarmAck", "segments");
+        HasKeys(s["session"], "session", "id", "status", "startedMs", "alarmPct", "alarmPctMax", "alarm", "alarmAck", "segments", "pausedSinceMs");
         foreach (object g in (IList)((Dictionary<string, object>)s["session"])["segments"]) HasKeys(g, "segments[]", "startMs", "endMs", "startPct", "endPct", "startMwh", "endMwh");
         foreach (object x in (IList)s["samples"]) HasKeys(x, "samples[]", "rev", "ms", "elapsedS", "pct", "mwh", "fullMwh", "rateMw", "rateSrc", "voltageMv", "ac", "saver");
         Ok(((IList)s["events"]).Count == 0, "no events in the fake engine's published list (added directly)");

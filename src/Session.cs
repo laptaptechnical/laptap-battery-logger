@@ -214,6 +214,16 @@ public class Engine
     string stateKey = "";
     public string UpdatedFrom;    // set for the whole run after an update
     public volatile bool RequestPublish;   // set by the update thread; the main loop publishes
+
+    // ---- v15.1 (reduced scope): update hold, Restart now, quick idle exit (plan v15.1 §2–§3) ----
+    public const long HoldCapMs = 45000;           // G2 / audit I7 + build-audit I2: any update hold lifts 45 s after it began (inside the 60 s unplug latch)
+    public const long VisibleQuietMs = 15000;      // §3: no contact for 15 s (page was visible) → exit when idle
+    public const long HiddenQuietMs = 90000;       // §3: … 90 s if the page said it was hidden
+    public Action RetryUpdate = delegate { };      // /api/update-retry: run the check again (Program allows it once)
+    public Func<string> SpawnAfterExit = delegate { return "Restart is not available."; };   // §2.3; null = started
+    public long? QuitAtMs;                         // Restart now: exit the main loop now
+    bool heartbeated, lastVisible = true;
+    long? holdSinceMs;
     public bool CountdownDue() { return CountdownEndsMs.HasValue && Hw.Now() >= CountdownEndsMs.Value; }
 
     long rev;
@@ -311,14 +321,14 @@ public class Engine
             bool watched = now - LastPollMs() <= 3000;
             if (CountdownEndsMs.HasValue)
             {
-                if (!all || !Armed) CountdownEndsMs = null;   // a check dropped → back to Ready
+                if (!all || !Armed || now - LastContactMs() > VisibleQuietMs) CountdownEndsMs = null;   // a check dropped, or no page for 15 s → Ready (still armed)
                 else if (now >= CountdownEndsMs.Value)
                 {
                     CountdownEndsMs = null;
                     StartTest(latchUsable && latch != null);
                 }
             }
-            else if (Armed && all && watched) CountdownEndsMs = now + CountdownMs;
+            else if (Armed && all && watched && !UpdateHoldsCountdown(now)) CountdownEndsMs = now + CountdownMs;
         }
         else CountdownEndsMs = null;
         string key = cBattery + "|" + cPct96 + "|" + cUnplugged + "|" + cCapHint + "|" + Armed + "|" + CountdownEndsMs + "|" + pct + "|" + ac + "|" + (S == null ? "-" : S.Status);
@@ -338,9 +348,79 @@ public class Engine
     public bool ShouldExit()
     {
         long now = Hw.Now();
-        if (Active) return false;
+        if (Active) return false;                                       // a running test is never left (build-audit M2)
+        if (QuitAtMs.HasValue && now >= QuitAtMs.Value) return true;   // Restart now (§2.3)
         if (S != null && S.Alarm && !S.AlarmAck && S.EndMs.HasValue && now - S.EndMs.Value < 31 * 60000L) return false;
-        return now - Math.Max(LastHeartbeatMs, LaunchMs) > 180000;
+        // v15.1 §3: the window closed → exit soon. 15 s after the last contact if the page was visible, 90 s if it was
+        // hidden (a minimised window keeps its logger). No page yet: the start-up grace (3 min) as before.
+        long contact = LastContactMs();
+        if (contact <= 0) return now - LaunchMs > 180000;
+        return now - contact > (lastVisible ? VisibleQuietMs : HiddenQuietMs);
+    }
+
+    // The last heartbeat or token'd GET /api/state (0 = no page has talked to this logger yet).
+    public long LastContactMs() { return Math.Max(heartbeated ? LastHeartbeatMs : 0, LastPollMs()); }
+
+    // §2.2: downloading and verifying hold the countdown, for at most 60 s from when the hold began. ready / failed never.
+    public bool UpdateHoldsCountdown(long now)
+    {
+        string ph = Updater.Progress.Phase;
+        if (ph != "downloading" && ph != "verifying") { holdSinceMs = null; return false; }
+        if (!holdSinceMs.HasValue) holdSinceMs = now;
+        return now - holdSinceMs.Value < HoldCapMs;
+    }
+
+    // §2.3: Restart now only when idle: no session not done, Ready with no countdown, or Done with the alarm acknowledged.
+    public bool RestartIdle()
+    {
+        if (Active) return false;
+        bool band = (IsReady && !CountdownEndsMs.HasValue) || (S != null && S.Status == "done" && (!S.Alarm || S.AlarmAck));
+        return band && !Updater.AnySessionNotDone();
+    }
+
+    // §5: the one next step before a test: battery → charge → wait-update → unplug → null.
+    public string NextStep(long now)
+    {
+        if (!IsReady) return null;
+        if (!cBattery) return "battery";
+        if (!cPct96) return "charge";
+        if (UpdateHoldsCountdown(now)) return "wait-update";
+        if (!cUnplugged) return "unplug";
+        return null;
+    }
+
+    // §5: live numbers from the counted segments (the same rules as the result). Null until 5 counted samples.
+    public Dictionary<string, object> LiveDict()
+    {
+        Dictionary<string, object> d = new Dictionary<string, object>();
+        d["avgW"] = null; d["etaToAlarmS"] = null; d["healthPct"] = null;
+        if (S == null) return d;
+        StaticInfo si = S.StartInfo ?? Info;
+        List<Sample> counted = new List<Sample>();
+        foreach (Sample x in Samples) if (!x.Ac && x.Pct.HasValue) counted.Add(x);
+        if (counted.Count < 5) return d;
+        List<Seg> segs = new List<Seg>(S.Segments);
+        if (S.OpenSeg != null && Latest != null && Latest.Ms >= S.OpenSeg.StartMs)
+        {
+            Seg o = new Seg(); o.StartMs = S.OpenSeg.StartMs; o.StartPct = S.OpenSeg.StartPct; o.StartMwh = S.OpenSeg.StartMwh;
+            o.EndMs = Latest.Ms; o.EndPct = Latest.Pct; o.EndMwh = Latest.Mwh; segs.Add(o);
+        }
+        double? w = Rules.AvgW(segs);
+        d["avgW"] = w.HasValue ? (object)Math.Round(w.Value, 2) : null;
+        List<double[]> pts = new List<double[]>();
+        foreach (Sample x in counted) pts.Add(new double[] { x.ElapsedS, x.Pct.Value });
+        d["etaToAlarmS"] = S.Status == "running" ? Rules.EtaToAlarm(pts, S.AlarmPct) : null;
+        d["healthPct"] = si == null ? null : Rules.Health(si.TotalFull(), si.TotalDesign())[0];   // raw, like result.healthPct
+        return d;
+    }
+
+    // app.* (also read at serve time by the server, so the download % is current between publishes)
+    public Dictionary<string, object> AppDict()
+    {
+        Dictionary<string, object> app = new Dictionary<string, object>();
+        app["version"] = AppVersion.Version; app["release"] = AppVersion.Release; app["updatedFrom"] = UpdatedFrom; app["updateNote"] = Updater.Note;
+        app["update"] = Updater.Progress.ToDict();
+        return app;
     }
 
     void AlarmFallback(long now)
@@ -574,7 +654,32 @@ public class Engine
         r["ok"] = true;
         switch (name)
         {
-            case "heartbeat": LastHeartbeatMs = Hw.Now(); break;
+            case "heartbeat":   // v15.1: body {visible}; a missing body counts as visible (older pages)
+                {
+                    LastHeartbeatMs = Hw.Now(); heartbeated = true;
+                    object v; lastVisible = !(body != null && body.TryGetValue("visible", out v) && v is bool && !(bool)v);
+                    break;
+                }
+            case "update-restart":
+                if (QuitAtMs.HasValue) break;   // already restarting: ok, nothing more (build-audit M1)
+                if (Updater.Progress.Phase != "ready") { r["ok"] = false; r["error"] = "No update is ready."; break; }
+                if (!RestartIdle()) { r["ok"] = false; r["error"] = "Finish the test first."; break; }
+                {
+                    string err = SpawnAfterExit();   // "<self> --after-exit <pid>" (§2.3), started before we answer
+                    if (err != null) { r["ok"] = false; r["error"] = err; break; }
+                    Updater.Log("restart now: quitting; the next start installs " + Updater.Progress.Version);
+                    QuitAtMs = Hw.Now() + 500;   // exit after the {ok:true} answer has gone out to the page
+                }
+                break;
+            case "update-retry":
+                if (Updater.Progress.Phase != "failed") { r["ok"] = false; r["error"] = "Nothing to retry."; break; }
+                Updater.SetPhase("idle", null, null);
+                try { RetryUpdate(); } catch { }
+                break;
+            case "open-report":
+                if (S == null || S.Status != "done" || string.IsNullOrEmpty(S.ReportPath) || !File.Exists(S.ReportPath)) { r["ok"] = false; r["error"] = "No report to open."; break; }
+                try { OpenFile(S.ReportPath); } catch (Exception ex) { r["ok"] = false; r["error"] = ex.Message; }
+                break;
 #if TESTHOOKS
             case "start": { string err = StartNow(); if (err != null) { r["ok"] = false; r["error"] = err; } break; }   // test hook only
 #endif
@@ -836,9 +941,9 @@ public class Engine
         d["checks"] = ck;
         d["armed"] = Armed;
         d["countdownEndsMs"] = CountdownEndsMs;
-        Dictionary<string, object> app = new Dictionary<string, object>();
-        app["version"] = AppVersion.Version; app["release"] = AppVersion.Release; app["updatedFrom"] = UpdatedFrom; app["updateNote"] = Updater.Note;
-        d["app"] = app;
+        d["app"] = AppDict();
+        d["nextStep"] = NextStep(Hw.Now());
+        d["live"] = LiveDict();
         StaticInfo si = (S != null && S.StartInfo != null) ? S.StartInfo : Info;
         Dictionary<string, object> unit = new Dictionary<string, object>();
         unit["maker"] = si.Manufacturer; unit["model"] = si.Model;
@@ -860,6 +965,9 @@ public class Engine
             foreach (Seg g in S.Segments) segs.Add(SegDict(g, true));
             if (S.OpenSeg != null) segs.Add(SegDict(S.OpenSeg, false));
             ss["segments"] = segs;
+            long? pausedSince = null;
+            if (S.Status == "paused" && S.Pauses.Count > 0 && !S.Pauses[S.Pauses.Count - 1].ToMs.HasValue) pausedSince = S.Pauses[S.Pauses.Count - 1].FromMs;
+            ss["pausedSinceMs"] = pausedSince;   // derived, never stored in session.json (audit M7)
             d["session"] = ss;
             d["samples"] = sampleDicts.ToArray();
             d["events"] = eventDicts.ToArray();

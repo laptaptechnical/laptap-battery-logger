@@ -153,9 +153,10 @@ export async function withExe(exe, opts, fn) {
 }
 
 // Element ids the v15 tests rely on (the prototype v6 ids). If the page uses others, change them here only.
+// v15.1 ids: "band" now reads the whole window (stage + overlay: the countdown is a popup since v15.1).
 export const SEL = {
-  band: '#band', checks: '#checks', cBat: '#cBat', cPct: '#cPct', cAc: '#cAc', cd: '#cd', cancel: '#cancelBtn', start: '#startBtn',
+  band: '#app', checks: '.conds', cBat: '#cB', cPct: '#cP', cAc: '#cA', cd: '#cdw', cancel: '#cancelBtn', start: '#startBtn',
   bigWord: '#bigWord', elapsed: '#elapsed', eta: '#eta', stop: '#stopBtn', stopYes: '#stopYes', stopNo: '#stopNo',
-  doneSub: '#doneSub', newBtn: '#newBtn', csv: '#csvBtn', rows: '#rows', rowCount: '#rowCount', jump: '#jumpBtn', scroll: '#scroll',
-  ver: '#ver', toast: '#toast', alarm: '#alarm', alarmOk: '#alarmOk', alarmPct: '#alarmPct',
+  doneSub: '#range', newBtn: '#newBtn', open: '#openBtn', rows: '#rows', rowCount: '#rowCount', jump: '#jumpBtn', scroll: '#scroll',
+  ver: '#ver', toast: '#toast', alarm: '#alarm', alarmOk: '#aOk', alarmPct: '#alarmPct',
 };

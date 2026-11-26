@@ -1,6 +1,7 @@
-# Battery Logger — page ↔ exe contract (single copy, v15)
+# Battery Logger — page ↔ exe contract (single copy, v15.1)
 
-v14 contract confirmed by Planning 2026-11-26; v15 changes from the plan's §4 (marked **v15**). Times are epoch ms
+v14 contract confirmed by Planning 2026-11-26; v15 changes from the plan's §4 (marked **v15**); v15.1.0 changes from
+the v15.1 plan's §5, reduced scope (marked **v15.1**). Times are epoch ms
 (`ms`), and the page formats them. Names are camelCase. Null = unknown, never a guess.
 
 ## GET /api/state?since=<rev>
@@ -10,7 +11,10 @@ v14 contract confirmed by Planning 2026-11-26; v15 changes from the plan's §4 (
   "rev": 42, "version": "15.0.0", "nowMs": 1764122398000,
   "checks": { "battery": true, "pct96": true, "unplugged": false, "chargeLimitHint": false },
   "armed": true, "countdownEndsMs": null,
-  "app": { "version": "15.0.0", "release": 1, "updatedFrom": null, "updateNote": null },
+  "nextStep": null | "battery" | "charge" | "wait-update" | "unplug",
+  "app": { "version": "15.0.0", "release": 1, "updatedFrom": null, "updateNote": null,
+           "update": { "phase": "idle", "version": null, "bytes": null, "total": null, "percent": null, "note": null } },
+  "live": { "avgW": null, "etaToAlarmS": null, "healthPct": null },
   "unit": { "maker": "HP", "model": "HP EliteBook 840 G5", "serial": "5CB4190FVX", "computerName": "LAPTOP-1234" },
   "batteries": [ { "id": "...", "maker": "...", "chemistry": "LIon",
                    "designMwh": 51528, "fullMwh": 47378, "fullEndMwh": null, "cycles": null } ],
@@ -18,7 +22,7 @@ v14 contract confirmed by Planning 2026-11-26; v15 changes from the plan's §4 (
   "session": null | {
     "id": "20261126-090000", "status": "running" | "paused" | "done",
     "startedMs": 0,
-    "alarmPct": 15, "alarmPctMax": 50, "alarm": false, "alarmAck": false,
+    "alarmPct": 15, "alarmPctMax": 50, "alarm": false, "alarmAck": false, "pausedSinceMs": null,
     "segments": [ { "startMs": 0, "endMs": null, "startPct": 98, "endPct": null, "startMwh": 46000, "endMwh": null } ]
   },
   "samples": [ { "rev": 41, "ms": 0, "elapsedS": 0, "pct": 98, "mwh": 46000, "fullMwh": 47378,
@@ -54,6 +58,19 @@ v14 contract confirmed by Planning 2026-11-26; v15 changes from the plan's §4 (
   one-line reason for the version tooltip only: "Folder is read-only" · "Clock is wrong (yyyy-mm-dd), update skipped" ·
   "Update check failed (no internet?)" · "Update refused: bad signature" · "Update vanished (antivirus?)" ·
   "Update failed to start".
+- **v15.1 `nextStep`** (the one thing to do before a test; the page picks its screen from it), in this order: no battery →
+  `battery`; not 96% → `charge` (the page picks "Plug in and charge" or "Charging… wait" from `checks.unplugged`); an
+  update holds the countdown → `wait-update`; plugged in → `unplug`; else null. Null while a session is showing.
+- **v15.1 `app.update`** (one snapshot from the updater thread, also read at serve time): `phase` = `idle` · `checking` ·
+  `downloading` (`version`, `bytes`, `total`, `percent` 0–100, at most every 250 ms) · `verifying` · `ready` (staged; installs at the
+  next start, through the v15 start-time swap) · `failed` (`note` = the `updateNote` wording). `checking` with nothing to do goes
+  back to `idle`.
+  - **Countdown hold:** `downloading` and `verifying` hold the countdown (`nextStep = wait-update`), for at most 45 s from
+    when the hold began; then it lifts and the update carries on quietly. `ready` and `failed` never hold.
+- **v15.1 `live`:** from the counted segments, by the same rules as `result`, so the Logging tiles and Done agree. All null
+  until 5 counted samples. `healthPct` is raw like `result.healthPct`; `etaToAlarmS` is null while paused.
+- **v15.1 `session.pausedSinceMs`:** the plug-in time of the open pause; null unless Paused. Derived, never stored in
+  `session.json` (no new stored fields: older copies on sticks share the data folder).
 - `samples`/`events`: only rows with `rev > since`; all rows when `since` is 0 or missing. `elapsedS` = counted time.
 - **Event types** (same strings as the CSV `event` column): `start`, `unplugged` (the latched unplug reading when the
   countdown ran straight after it), `charger_in`, `charger_out`, `gap` (with `fromMs`/`toMs`; `note` = `slept` |
@@ -74,11 +91,21 @@ v14 contract confirmed by Planning 2026-11-26; v15 changes from the plan's §4 (
 
 - Every POST needs header `X-Laptap-Token` and a JSON body (or none). It answers `{ "ok": true }` or
   `{ "ok": false, "error": "<text>" }`.
-- `/api/heartbeat` · `/api/stop` · `/api/ack-alarm` · `/api/alarm-pct` body `{ "pct": 20 }` (10 to `alarmPctMax`) ·
+- `/api/heartbeat` (**v15.1:** body `{ "visible": true | false }`; no body = visible) · `/api/stop` · `/api/ack-alarm` · `/api/alarm-pct` body `{ "pct": 20 }` (10 to `alarmPctMax`) ·
   `/api/save-csv`, whose answer adds `"file": "<full path>"`.
 - **v15:** `/api/arm` (the Start button: re-arms; the same 3 s countdown runs) · `/api/cancel` (Countdown → Ready,
   disarmed) · `/api/new` (Done → Ready, armed). `/api/start` is **not** in the release exe: it exists only in a
   `TESTHOOKS` build, for tests.
+- **v15.1:** `/api/update-restart` (Restart now: only when `phase == ready` and idle, i.e. no session not done and Ready with no
+  countdown or Done with the alarm acknowledged; else "No update is ready." / "Finish the test first."). When accepted the
+  exe starts "<own exe> --after-exit <own pid>", answers `{ok:true}`, then exits; the new process waits for it (30 s max)
+  and starts like a double-click, so the v15 start-time swap installs the update and opens a new window. The page
+  shows "Restarting…" and closes itself. · `/api/update-retry` (from `failed`: runs the check again, once per start) ·
+  `/api/open-report` (Done only: opens the Desktop report with the shell).
+- **v15.1 idle exit:** with no test running (and outside the unacknowledged-alarm window), the exe exits 15 s after the
+  last contact (a heartbeat or a token'd `GET /api/state`) if the last heartbeat said visible, 90 s if it said hidden. No
+  page yet: the 3 min start-up grace. A countdown with no contact for 15 s is cleared. The page heartbeats every 5 s
+  while visible, every 30 s while hidden, and at each visibility change.
 - `{ok:false, error}` with **HTTP 200** is used for rule refusals, e.g. "A test is already running.", "No countdown is
   running.", "No finished test is showing.", "Press New test first.", an alarm % out of range. The page shows `error`,
   re-polls and renders from `/api/state`; it never assumes a state.
@@ -91,6 +118,7 @@ v14 contract confirmed by Planning 2026-11-26; v15 changes from the plan's §4 (
 - `--verify-release <dir>`: read-only check of a release folder (`update.json`, `.sig`, the exe) against this exe's
   keys, version and release. Exit 0 = good. Used by `tools/release.ps1`.
 - `--updated <nonce>`: internal, the swapped-in exe after an update. `--no-update`: internal, after a rollback.
+- **v15.1** `--after-exit <pid>`: internal, Restart now. Waits (up to 30 s) for that pid to exit, then starts normally.
 - QA only: `--qa-no-window`, `--qa-out <dir>`, `--qa-alarm-pct <1-95>`.
 
 ## Report template (`<template id="report">` inside index.html)

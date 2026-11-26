@@ -32,7 +32,7 @@ static class Program
     [STAThread]
     static int Main(string[] args)
     {
-        int qaAlarm = 0; bool qaNoWindow = false, noUpdate = false, selfTest = false; string updatedNonce = null, verifyDir = null, keysFile = null;
+        int qaAlarm = 0, afterExit = 0; bool qaNoWindow = false, noUpdate = false, selfTest = false; string updatedNonce = null, verifyDir = null, keysFile = null;
         List<string> passOn = new List<string>();   // QA switches handed to a swapped-in exe
         for (int i = 0; i < args.Length; i++)
         {
@@ -44,7 +44,11 @@ static class Program
             else if (args[i] == "--verify-release" && i + 1 < args.Length) { verifyDir = args[i + 1]; i++; }
             else if (args[i] == "--keys-file" && i + 1 < args.Length) { keysFile = args[i + 1]; i++; }
             else if (args[i] == "--self-test") selfTest = true;
+            else if (args[i] == "--after-exit" && i + 1 < args.Length) { int v; if (int.TryParse(args[i + 1], out v)) afterExit = v; i++; }   // v15.1 Restart now
         }
+        // v15.1 §2.3: started by Restart now. Wait (up to 30 s) for the old logger to exit, then start exactly like a
+        // double-click, so the v15 start-time swap installs the staged update.
+        if (afterExit > 0) WaitForExit(afterExit, 30000);
         if (UpdateConfig.TestNamespace.Length > 0) Engine.BaseDir = Engine.BaseDir + "-test-" + UpdateConfig.TestNamespace;
         try { Directory.CreateDirectory(Engine.BaseDir); } catch { }
 
@@ -107,7 +111,7 @@ static class Program
             // ---- self-check (I5) ----
             bool ac, saver, present, crit; double? pct;
             if (!Battery.PowerStatus(out ac, out pct, out saver, out present, out crit)) return Fail("Windows did not report the power status", null);
-            if (!present) { RefusedByLaptop(); return Fail(null, null, "No battery found on this computer."); }
+            // G3 (v15.1): no battery opens the window on the "No battery found" screen; only the battery check fails.
             string desk = Report.Desktop();
             if (string.IsNullOrEmpty(desk) || !Directory.Exists(desk)) { RefusedByLaptop(); return Fail("the Desktop folder was not found", null); }
 
@@ -122,6 +126,10 @@ static class Program
             server.IndexHtml = Encoding.UTF8.GetBytes(index);
             server.LogicJs = Encoding.UTF8.GetBytes(logic);
             server.GetSnapshot = delegate { return en.Snapshot; };
+            server.GetApp = en.AppDict;
+            Updater.Changed = delegate { en.RequestPublish = true; };
+            string passArgs = string.Join(" ", passOn.ToArray());
+            en.SpawnAfterExit = delegate { return SpawnAfterExit(passArgs); };
             server.OnFirstState = delegate { if (childNonce != null) Updater.Announce(childNonce, "owner"); };
             en.LastPollMs = delegate { return server.LastStateGetMs; };
             server.OnCrash = delegate(Exception ex) { Fail("the local server stopped (" + ex.Message + ")", ex); Environment.Exit(1); };
@@ -148,11 +156,18 @@ static class Program
                 o.BaseUrl = UpdateConfig.BaseUrl; o.UpdatedThisStart = updatedNonce != null;
                 o.Idle = delegate { Engine e = en; return e.S == null || e.S.Status == "done"; };
                 o.Stopping = delegate { return stopping; };
-                Thread ut = new Thread(delegate()
+                ThreadStart check = delegate
                 {
                     try { string r = Updater.CheckAndStage(o); Updater.Log("check: " + r); en.RequestPublish = true; }
-                    catch (Exception ex) { Updater.Log("check crashed: " + ex.Message); }
-                });
+                    catch (Exception ex) { Updater.Log("check crashed: " + ex.Message); Updater.SetPhase("idle", null, null); }
+                };
+                int retried = 0;
+                en.RetryUpdate = delegate   // Try again (v15.1): once per start
+                {
+                    if (Interlocked.Exchange(ref retried, 1) == 1) return;
+                    Thread rt = new Thread(check); rt.IsBackground = true; rt.Name = "update-retry"; rt.Priority = ThreadPriority.BelowNormal; rt.Start();
+                };
+                Thread ut = new Thread(check);
                 ut.IsBackground = true; ut.Name = "update"; ut.Priority = ThreadPriority.BelowNormal;
                 ut.Start();
             }
@@ -174,7 +189,7 @@ static class Program
             }
             stopping = true;
             server.Stop();
-            try { File.Delete(Path.Combine(Engine.BaseDir, "helper.json")); } catch { }
+            DeleteHelperIfOurs();   // audit I3: never another process's helper.json
             try { mutex.ReleaseMutex(); } catch { }
             return 0;
         }
@@ -182,6 +197,44 @@ static class Program
     }
 
     static string childNonce;   // set in a run started with --updated
+
+    // v15.1 §2.3 Restart now: "<own exe> --after-exit <own pid>" (+ the QA switches, empty for staff). null = started.
+    internal static Func<string, ProcessStartInfo, bool> StartProcess = delegate(string what, ProcessStartInfo p) { return Process.Start(p) != null; };
+    internal static string SpawnAfterExit(string passArgs)
+    {
+        try
+        {
+            ProcessStartInfo p = new ProcessStartInfo(ExePath, "--after-exit " + Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture) +
+                (string.IsNullOrEmpty(passArgs) ? "" : " " + passArgs));
+            p.UseShellExecute = false;
+            if (!StartProcess("after-exit", p)) return "Could not restart the logger.";
+            return null;
+        }
+        catch (Exception ex) { LogError("restart now", ex); return "Could not restart the logger."; }
+    }
+
+    // --after-exit: true once the pid is gone (or was never there); false after the wait (the start carries on anyway).
+    internal static bool WaitForExit(int pid, int ms)
+    {
+        try { using (Process p = Process.GetProcessById(pid)) return p.WaitForExit(ms); }
+        catch (ArgumentException) { return true; }    // not found = already gone
+        catch { return true; }
+    }
+
+    // audit I3: delete helper.json only when it names this process.
+    internal static void DeleteHelperIfOurs()
+    {
+        string f = Path.Combine(Engine.BaseDir, "helper.json");
+        try
+        {
+            if (!File.Exists(f)) return;
+            Dictionary<string, object> d = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(File.ReadAllText(f));
+            object pid;
+            if (d != null && d.TryGetValue("pid", out pid) && Convert.ToInt32(pid, CultureInfo.InvariantCulture) != Process.GetCurrentProcess().Id) return;
+            File.Delete(f);
+        }
+        catch { try { File.Delete(f); } catch { } }
+    }
 
     // A refusal that is the laptop's fault (no battery, no Desktop) is not the release's: no rollback (C2).
     static void RefusedByLaptop() { if (childNonce != null) Updater.Announce(childNonce, "refused"); }
@@ -263,11 +316,15 @@ static class Program
         catch { return null; }
     }
 
-    static void WriteHelperJson(int port, string token)
+    // v15.1: port, token, pid, version, release; written atomically (temp + replace).
+    internal static void WriteHelperJson(int port, string token)
     {
         Dictionary<string, object> d = new Dictionary<string, object>();
         d["port"] = port; d["token"] = token; d["pid"] = Process.GetCurrentProcess().Id;
-        File.WriteAllText(Path.Combine(Engine.BaseDir, "helper.json"), new JavaScriptSerializer().Serialize(d), new UTF8Encoding(false));
+        d["version"] = AppVersion.Version; d["release"] = AppVersion.Release;
+        string f = Path.Combine(Engine.BaseDir, "helper.json"), tmp = f + ".tmp";
+        File.WriteAllText(tmp, new JavaScriptSerializer().Serialize(d), new UTF8Encoding(false));
+        if (File.Exists(f)) File.Replace(tmp, f, null); else File.Move(tmp, f);
     }
 
     // Second launch: reuse the running logger (M4). Its helper.json may still be on the way (powercfg), so retry ~10 s.

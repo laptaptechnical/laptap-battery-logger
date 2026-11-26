@@ -74,7 +74,8 @@ node test/measure-idle.mjs
 - `node --test --test-concurrency=1 test/` runs the harness self-test, the page suites and the v15 flow / log suites.
 - `node tests/e2e-update.mjs` is the local self-update run. It uses loopback and temp folders only, with a throwaway
   test key, a `TESTHOOKS` exe, its own data folder and its own mutex names.
-- `node test/measure-bar.mjs` checks the layout at 1024×600: the band buttons are on screen and the log gets ≥ 180 px.
+- `node test/measure-bar.mjs` checks the layout at 1024×600 and 1366×768: every control on each screen is on screen, the
+  page never scrolls, and the live log gets ≥ 150 px.
 - `node test/measure-idle.mjs` measures timer, DOM and storage cost. Add `--cpu` for real-time CPU.
 
 The harness uses `playwright-core` and Chromium headless shell that are already on the PC; it installs nothing. By
@@ -93,6 +94,8 @@ Staff double-click the exe with no arguments.
 - `--self-test`: loads the page, builds the engine, starts and stops the local server, and reads its state back.
   Exit 0 = good. `tools\release.ps1` runs it before signing.
 - `--updated <nonce>`, `--no-update`: internal, used by the update hand-off and rollback.
+- `--after-exit <pid>`: internal, used by "Restart now" (v15.1): waits for the old logger to exit, then starts normally so the
+  staged update installs.
 
 QA only:
 

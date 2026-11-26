@@ -125,7 +125,7 @@ if (-not $SkipTests) {
     $texe = Join-Path $tbin 'HelperTests.exe'
     $targs = @('/nologo', '/target:exe', '/platform:anycpu', '/main:HelperTests', '/define:TESTHOOKS') + $refs +
              @('/resource:src\web\index.html,index.html', '/resource:src\web\logic.js,logic.js', "/out:$texe") + $src +
-             @('tools\KeyTools.cs', 'tests\V15Tests.cs', 'tests\HelperTests.cs')
+             @('tools\KeyTools.cs', 'tests\V15Tests.cs', 'tests\V151Tests.cs', 'tests\HelperTests.cs')
     & $csc @targs
     if ($LASTEXITCODE -ne 0) { throw 'compile failed (tests)' }
     & $texe (Join-Path $PSScriptRoot 'tests\fixtures') $exe (Join-Path $PSScriptRoot 'src\web\index.html')

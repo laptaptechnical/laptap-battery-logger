@@ -230,13 +230,97 @@
     return over > 0 ? Math.min(over, domRows) : 0;
   }
 
+  // ---------------- v15.1: one stage, one modal, chips (plan §6) ----------------
+
+  var ACTIVE_UPDATE = { checking: 1, downloading: 1, verifying: 1 };
+
+  // Which stage fills the window (§6.1–6.5). Returns { stage, now } where stage is one of
+  // nobatt · low · charge · waitupd · unplug · countdown · ready · logging · paused · done,
+  // and `now` is the checklist item to highlight ('b' | 'p' | 'a' | null). showStart: the big Start (G4).
+  function stageView(s) {
+    s = s || {};
+    var sess = s.session, ck = s.checks || {};
+    if (sess && sess.status === 'running') return { stage: 'logging', now: null, showStart: false };
+    if (sess && sess.status === 'paused') return { stage: 'paused', now: null, showStart: false };
+    if (sess && sess.status === 'done') return { stage: 'done', now: null, showStart: false };
+    // An exe without nextStep (older contract): the same order from the checks, with no update hold.
+    var ns = s.nextStep !== undefined ? s.nextStep
+      : !ck.battery ? 'battery' : !ck.pct96 ? 'charge' : !ck.unplugged ? 'unplug' : null;
+    switch (ns) {
+      case 'battery': return { stage: 'nobatt', now: 'b', showStart: false };
+      case 'charge': return { stage: ck.unplugged ? 'low' : 'charge', now: 'p', showStart: false };
+      case 'wait-update': return { stage: 'waitupd', now: null, showStart: false };
+      case 'unplug': return { stage: 'unplug', now: 'a', showStart: false };
+    }
+    if (s.countdownEndsMs != null) return { stage: 'countdown', now: null, showStart: false };
+    return { stage: 'ready', now: null, showStart: s.armed === false };
+  }
+
+  // A test is on screen (Countdown, Logging, Paused): no update modal, only the header chip (§6.3).
+  function testOnScreen(stage) { return stage === 'countdown' || stage === 'logging' || stage === 'paused'; }
+
+  // Which update modal to show (v15.1 §4.3). opts: { checkingForMs, hidden: { phase: true }, restarting }.
+  // checking shows only after 1 s (G1); never while a test is on screen. "restarting" only after Restart now.
+  function modalView(s, opts) {
+    s = s || {}; opts = opts || {};
+    if (opts.restarting) return 'restarting';
+    var u = (s.app || {}).update || {}, ph = u.phase || 'idle', st = stageView(s).stage;
+    if (testOnScreen(st) || ph === 'idle') return null;
+    if (opts.hidden && opts.hidden[ph]) return null;
+    if (ph === 'checking') return (opts.checkingForMs || 0) > 1000 ? 'checking' : null;
+    return ph;
+  }
+
+  // The header chip (v15.1 §4.2, §4.3): "Update vX installs after this test" during a test, the hidden download
+  // "Downloading vX 62%", or after OK on "Update ready" "vX installs next time". Null = no chip.
+  function chipView(s, opts) {
+    s = s || {}; opts = opts || {};
+    var app = s.app || {}, u = app.update || {}, st = stageView(s).stage, hidden = opts.hidden || {};
+    if (testOnScreen(st)) {
+      if (u.version && (u.phase === 'downloading' || u.phase === 'verifying' || u.phase === 'ready')) return { kind: 'update', text: 'Update v' + u.version + ' installs after this test' };
+      return null;
+    }
+    if (u.phase === 'downloading' && hidden.downloading)
+      return { kind: 'download', text: 'Downloading v' + u.version + ' ' + (u.percent || 0) + '%', percent: u.percent || 0 };
+    if (u.phase === 'ready' && hidden.ready) return { kind: 'ready', text: 'v' + u.version + ' installs next time' };
+    return null;
+  }
+
+  // §2.3: Restart now shows only when the logger is idle: Ready with no countdown, or Done with the alarm acknowledged
+  // (the exe checks again and refuses otherwise).
+  function canRestart(s) {
+    s = s || {};
+    var st = stageView(s).stage, sess = s.session;
+    if (st === 'done') return !(sess && sess.alarm && !sess.alarmAck);
+    return st !== 'countdown' && !testOnScreen(st);
+  }
+
+  // §3: heartbeat cadence. Visible: every 5 s (the exe exits ~15 s after a visible page goes quiet). Hidden: every
+  // 30 s, so even Chrome's 1-a-minute throttling of hidden timers stays inside the exe's 90 s hidden window.
+  function heartbeatEvery(hidden) { return hidden ? 30000 : 5000; }
+
+  // Countdown words (F6): "3..." → "3... 2..." → "3... 2... 1...", from countdownEndsMs − nowMs.
+  function countdownDigit(leftMs) { return Math.max(1, Math.min(3, Math.ceil((leftMs == null ? 3000 : leftMs) / 1000))); }
+  function countdownWords(leftMs) { return ['3... 2... 1...', '3... 2...', '3...'][countdownDigit(leftMs) - 1]; }
+
+  // "3 h 10 min" / "42 min"
+  function fmtHMin(sec) {
+    if (sec == null) return null;
+    sec = Math.max(0, Math.round(sec));
+    var h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60);
+    return h ? h + ' h ' + m + ' min' : m + ' min';
+  }
+
   var api = {
     intervalFor: intervalFor, detectGap: detectGap, canStart: canStart, segments: segments,
     countedTime: countedTime, countedDrop: countedDrop, countedEnergy: countedEnergy, estFull: estFull,
     estFullEnergy: estFullEnergy, avgW: avgW, etaToAlarm: etaToAlarm, health: health, fmtElapsed: fmtElapsed,
     fmtHm: fmtHm, isoLocal: isoLocal, csvRow: csvRow, escapeHtml: escapeHtml, fillReport: fillReport,
     sanitizeSerial: sanitizeSerial, isPlaceholderSerial: isPlaceholderSerial, validSample: validSample,
-    endReason: endReason, powerState: powerState, bandView: bandView, mergeRows: mergeRows, capRows: capRows
+    endReason: endReason, powerState: powerState, bandView: bandView, mergeRows: mergeRows, capRows: capRows,
+    stageView: stageView, testOnScreen: testOnScreen, modalView: modalView, chipView: chipView,
+    countdownDigit: countdownDigit, countdownWords: countdownWords, canRestart: canRestart, heartbeatEvery: heartbeatEvery,
+    fmtHMin: fmtHMin, ACTIVE_UPDATE: ACTIVE_UPDATE
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LaptapLogic = api;

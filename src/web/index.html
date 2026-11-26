@@ -5,174 +5,291 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Battery Logger</title>
 <style>
-/* Full-height Finale-look tool: header, one state band (checklist / countdown / LOGGING), stats, chart, then the live
-   log fills the rest. Fits 1024×600. Matches prototype v6. */
+/* v15.1 (prototype battery-logger-v15.1.html, taken as-is): one stage per state under a thin Finale header.
+   Pre-test = one giant instruction + one big picture. Logging / Paused = a full-width colour band. Sizes use container
+   units of the app frame, so the page fits 1024×600 and 1366×768. */
 :root{
-  --bg:#ffffff; --panel:#f7f9fb; --line:#dfe3e8; --fg:#16191d; --muted:#6b737c;
-  --accent:#0070d2; --accent-fg:#ffffff; --good:#2e844a; --good-bg:#e8f5ec; --warn:#b86e00; --warn-bg:#fdf3e1;
-  --bad:#c23934; --gap:#eef1f4; --info-bg:#e8f1fb;
+  --bg:#ffffff; --panel:#f5f7f9; --line:#dde2e7; --fg:#16191d; --muted:#66707a;
+  --accent:#0070d2; --on-color:#ffffff;
+  --go:#1f7a3d; --go-soft:#e6f4ea; --wait:#a85f00; --wait-ground:#f2a01c; --wait-soft:#fdf2df; --bad:#c23934; --bad-soft:#fbe9e8;
+  --count:#0070d2; --log:#1f8a43; --scrim:rgba(12,18,26,.5); --gap:#eef1f4;
   --font:"Helvetica Neue",Helvetica,Arial,sans-serif; --mono:Consolas,"Cascadia Mono",monospace;
 }
 @media (prefers-color-scheme:dark){:root{
-  --bg:#16191d; --panel:#1d2126; --line:#30363d; --fg:#e6e9ed; --muted:#9aa3ad;
-  --accent:#3d9bf0; --accent-fg:#0b1016; --good:#5cc27e; --good-bg:#16301f; --warn:#e3a33a; --warn-bg:#33270f;
-  --bad:#f0716b; --gap:#242a31; --info-bg:#132739; color-scheme:dark}}
+  --bg:#15181c; --panel:#1c2025; --line:#2e353d; --fg:#e8ebee; --muted:#9aa3ad;
+  --accent:#3d9bf0; --on-color:#ffffff;
+  --go:#5cc27e; --go-soft:#15301f; --wait:#f0b04a; --wait-ground:#b9740d; --wait-soft:#33270f; --bad:#f0716b; --bad-soft:#3a1c1b;
+  --count:#0b5fb0; --log:#17703a; --scrim:rgba(0,0,0,.6); --gap:#242a31; color-scheme:dark}}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
-html,body{height:100%}
-body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.4 var(--font);font-variant-numeric:tabular-nums}
-.wrap{height:100%;max-width:1200px;margin:0 auto;padding:10px 16px;display:flex;flex-direction:column;gap:10px;min-height:560px}
-header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:8px}
-.tile{width:28px;height:28px;border-radius:4px;background:var(--accent);display:grid;place-items:center}
-.tile svg{width:17px;height:17px}
-h1{font-size:16px;font-weight:600;margin:0}
-.unit{color:var(--muted)}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:13px/1.4 var(--font);font-variant-numeric:tabular-nums}
+.app{width:100%;height:100%;min-height:420px;background:var(--bg);display:flex;flex-direction:column;container-type:size;position:relative;overflow:hidden}
+header{height:40px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--line);background:var(--bg);position:relative;z-index:2}
+.tile{width:26px;height:26px;border-radius:4px;background:var(--accent);display:grid;place-items:center;flex:none}
+.tile svg{width:16px;height:16px}
+header h1{font-size:15px;font-weight:600;margin:0;white-space:nowrap}
+.unit{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .spacer{flex:1}
-.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
-.pill.off{color:var(--bad)}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--good)}
-.dot.off{background:var(--bad)}
-.ver{font-size:12px;color:var(--muted)}
+.ver{font-size:12px;color:var(--muted);white-space:nowrap}
 .ver.note{text-decoration:underline dotted;cursor:help}
-/* state band */
-.band{border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;flex:none}
-.band.ready{background:var(--panel)}
-.band.count{background:var(--info-bg);border-color:var(--accent)}
-.band.logging{background:var(--good-bg);border-color:var(--good)}
-.band.paused{background:var(--warn-bg);border-color:var(--warn)}
-.band.done{background:var(--panel)}
-.checks{display:flex;gap:18px;flex-wrap:wrap;list-style:none;margin:0;padding:0}
-.checks li{display:flex;align-items:center;gap:6px}
-.ck{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--muted);display:grid;place-items:center;font-size:11px;color:transparent;flex:none}
-.checks li.ok .ck{background:var(--good);border-color:var(--good);color:#fff}
-.checks li.ok{color:var(--fg)} .checks li:not(.ok){color:var(--muted)}
-.big{font-size:20px;font-weight:700;letter-spacing:.02em;display:flex;align-items:center;gap:10px}
-.band.logging .big{color:var(--good)} .band.paused .big{color:var(--warn)} .band.count .big{color:var(--accent)} .band.done .big{color:var(--fg)}
-.pulse{width:12px;height:12px;border-radius:50%;background:var(--good)} /* static dot: no animation for an 8 h test (row 7) */
-.clockbig{font-size:20px;font-weight:600;color:var(--fg)}
-.sub{color:var(--muted)}
-.sound{color:var(--bad);font-weight:600}
-.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden;flex:none}
-.stat{background:var(--bg);padding:8px 12px;display:flex;flex-direction:column;gap:1px;min-width:0}
-.stat .k{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
-.stat .v{font-size:20px;font-weight:600;display:flex;align-items:center;gap:8px}
-.stat .s{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.batt{width:32px;height:15px;border:1.5px solid var(--fg);border-radius:3px;padding:1.5px;position:relative;flex:none}
-.batt::after{content:"";position:absolute;right:-4px;top:3.5px;width:2px;height:5px;background:var(--fg);border-radius:0 1px 1px 0}
-.batt i{display:block;height:100%;background:var(--accent);border-radius:1px}
-.batt.low i{background:var(--bad)} .batt.chg i{background:var(--good)}
-.chart{border:1px solid var(--line);border-radius:4px;padding:6px 8px 2px;flex:none}
-.chart svg{width:100%;height:120px;display:block}
-.legend{display:flex;gap:14px;font-size:11px;color:var(--muted);padding:0 4px 2px}
-.sw{display:inline-block;width:10px;height:2px;vertical-align:middle;margin-right:4px}
-/* live log fills the rest (E1) */
-.log{flex:1;min-height:180px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:4px;overflow:hidden}
-.loghead{display:flex;align-items:center;gap:10px;padding:0 10px;height:30px;flex:none;background:var(--panel);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
-.loghead b{color:var(--fg)}
-.scroll{flex:1;overflow:auto;min-height:0;overflow-anchor:none;contain:strict}
-table{border-collapse:collapse;width:100%;min-width:560px;table-layout:fixed}
-th,td{height:22px;padding:0 10px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line)}
-th{position:sticky;top:0;background:var(--bg);font-weight:600;font-size:12px;color:var(--muted);z-index:1}
-td.n,th.n{text-align:right}
-tr.ev td{font-weight:600}
-tr.gap td{background:var(--gap);color:var(--muted)}
-tr.alarm td{color:var(--bad);font-weight:600}
-tr.new td{animation:hl 1.2s ease-out}
-@keyframes hl{from{background:var(--info-bg)}}
-tr.older td{color:var(--muted);font-style:italic}
-.jump{font:inherit;font-size:12px;height:22px;padding:0 8px}
-button{font:inherit;height:28px;padding:0 14px;border-radius:4px;border:1px solid var(--line);background:var(--bg);color:var(--accent);cursor:pointer;white-space:nowrap}
-button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:12px;font-size:12px;white-space:nowrap;background:var(--panel);color:var(--muted);border:1px solid var(--line)}
+.chip.off{color:var(--bad);border-color:var(--bad)}
+.chip .mini{width:46px;height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+.chip .mini i{display:block;height:100%;background:var(--accent)}
+
+button{font:inherit;height:30px;padding:0 14px;border-radius:4px;border:1px solid var(--line);background:var(--bg);color:var(--accent);cursor:pointer;white-space:nowrap}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-color)}
 button.danger{color:var(--bad)}
 button:disabled{opacity:.45;cursor:not-allowed}
-button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-label.f{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
-input[type=number]{font:inherit;width:52px;height:26px;padding:0 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
-.confirm{display:inline-flex;gap:8px;align-items:center;color:var(--bad)}
-.ov{position:fixed;inset:0;background:rgba(10,14,20,.45);display:grid;place-items:center;padding:16px;z-index:20}
-.box{background:var(--bg);border:1px solid var(--line);border-top:3px solid var(--bad);border-radius:6px;padding:18px 20px;width:min(380px,100%);display:flex;flex-direction:column;gap:10px}
-.box b{font-size:28px;color:var(--bad)}
-.toast{position:fixed;right:16px;top:12px;background:var(--fg);color:var(--bg);padding:6px 12px;border-radius:4px;font-size:12px;z-index:15}
-@media (max-width:720px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.wrap{height:auto}.log{min-height:320px}}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.huge{height:clamp(44px,9cqh,64px);padding:0 clamp(24px,4cqw,44px);font-size:clamp(17px,3.4cqh,24px);font-weight:600;border-radius:6px}
+.msg{color:var(--bad);font-weight:600}
+
+.stage{flex:1;min-height:0;display:flex;flex-direction:column}
+.stage > section{flex:1;min-height:0;display:flex;flex-direction:column}
+
+/* ---------- pre-test: one instruction ---------- */
+.pre{flex:1;min-height:0;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:clamp(20px,5cqw,64px);padding:clamp(16px,4cqh,40px) clamp(24px,6cqw,80px)}
+.pre .art{width:clamp(150px,44cqh,330px);aspect-ratio:1;display:grid;place-items:center}
+.pre .art svg{width:100%;height:100%;overflow:visible}
+.say{display:flex;flex-direction:column;gap:clamp(8px,2cqh,18px);min-width:0}
+.step{font-size:clamp(30px,8.5cqh,68px);font-weight:700;line-height:1.05;letter-spacing:-.01em;text-wrap:balance;margin:0}
+.bigpct{font-size:clamp(56px,19cqh,150px);font-weight:700;line-height:.9;letter-spacing:-.03em}
+.bigpct small{font-size:.4em;font-weight:600;color:var(--muted);letter-spacing:0;margin-left:.15em}
+.hint{font-size:clamp(15px,3.2cqh,22px);color:var(--muted);margin:0}
+.conds{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.cond{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px 0 6px;border-radius:14px;font-size:13px;border:1px solid var(--line);color:var(--muted)}
+.cond i{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--muted);display:grid;place-items:center;font-style:normal;font-size:11px;font-weight:700;color:transparent}
+.cond.ok{color:var(--fg)} .cond.ok i{background:var(--go);border-color:var(--go);color:#fff}
+.cond.now{border-color:var(--accent);color:var(--accent);font-weight:600} .cond.now i{border-color:var(--accent)}
+.tone-go .step{color:var(--fg)} .tone-bad .step{color:var(--bad)}
+
+/* before a test only: CSS transform/opacity, paused while the page is hidden, none under reduced motion */
+@keyframes pull{0%,30%{transform:translateX(0)}55%,80%{transform:translateX(-34px)}100%{transform:translateX(0)}}
+.plug{animation:pull 2.8s ease-in-out infinite}
+@keyframes nudge{0%,60%,100%{opacity:.25}75%{opacity:1}}
+.arrowhint{animation:nudge 2.8s ease-in-out infinite}
+@keyframes charge{0%{opacity:.55}50%{opacity:1}100%{opacity:.55}}
+.bolt{animation:charge 2.4s ease-in-out infinite}
+body.hid .plug,body.hid .arrowhint,body.hid .bolt{animation-play-state:paused}
+
+/* ---------- countdown popup ---------- */
+.cdpop{background:var(--count);color:var(--on-color);border-radius:12px;width:min(640px,100%);max-height:100%;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:clamp(6px,1.8cqh,16px);text-align:center;padding:clamp(16px,4cqh,32px) clamp(20px,4cqw,40px);box-shadow:0 18px 50px rgba(0,0,0,.35)}
+.cdpop .t1{font-size:clamp(26px,7cqh,48px);font-weight:800;margin:0;line-height:1.05}
+.cdpop .t2{font-size:clamp(17px,3.8cqh,26px);opacity:.92;margin:0}
+.cdpop .ring{width:clamp(120px,34cqh,240px)}
+.cdpop .num{font-size:clamp(84px,26cqh,190px)}
+.cdpop button.huge{background:transparent;border:2px solid var(--on-color);color:var(--on-color)}
+.cdpop .t3{font-size:clamp(12px,2.4cqh,15px);opacity:.8;margin:0}
+.ring{position:relative;width:clamp(150px,42cqh,300px);aspect-ratio:1;display:grid;place-items:center}
+.ring svg{position:absolute;inset:0;transform:rotate(-90deg)}
+.ring .num{font-size:clamp(100px,32cqh,230px);font-weight:700;line-height:1;letter-spacing:-.04em}
+@keyframes sweep{from{stroke-dashoffset:0}to{stroke-dashoffset:-603}}
+.ring .arc{animation:sweep 1s linear forwards}
+
+/* ---------- logging / paused ---------- */
+.band{padding:clamp(10px,2.6cqh,22px) clamp(16px,3cqw,32px);display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px 24px;color:var(--on-color);flex:none}
+.band.log{background:var(--log)} .band.pause{background:var(--wait-ground);color:#1d1503}
+.word{display:flex;align-items:center;gap:.35em;font-size:clamp(30px,8cqh,62px);font-weight:800;letter-spacing:.02em;line-height:1}
+.word .dot{width:.42em;height:.42em;border-radius:50%;background:currentColor;flex:none}
+.word .bars{display:inline-flex;gap:.12em} .word .bars i{width:.16em;height:.62em;background:currentColor;border-radius:2px}
+.clock{font-size:clamp(46px,15cqh,120px);font-weight:700;line-height:.95;letter-spacing:-.02em;text-align:right}
+.clock small{display:block;font-size:clamp(12px,2.4cqh,16px);font-weight:500;letter-spacing:0;opacity:.85;margin-top:4px}
+.bandsub{font-size:clamp(16px,3.6cqh,26px);font-weight:500;opacity:.95;grid-column:1/2}
+.band.pause .bandsub{font-weight:700}
+
+.stats{display:grid;grid-template-columns:1.25fr 1.25fr 1fr 1fr;border-bottom:1px solid var(--line);flex:none}
+.stat{padding:clamp(6px,1.6cqh,12px) clamp(12px,2cqw,20px);display:flex;flex-direction:column;gap:2px;min-width:0;border-right:1px solid var(--line)}
+.stat:last-child{border-right:0}
+.stat .k{font-size:12px;color:var(--muted)}
+.stat .v{font-size:clamp(22px,6cqh,44px);font-weight:700;line-height:1.05;display:flex;align-items:center;gap:10px;white-space:nowrap}
+.stat .v.m{font-size:clamp(18px,4.2cqh,28px);font-weight:600}
+.stat .v.wrap{white-space:normal;line-height:1.1}   /* "Charging, timer stopped" (Paused) may wrap; never runs into the next tile */
+.stat .s{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.batt{width:1.5em;height:.75em;border:2px solid currentColor;border-radius:4px;padding:2px;position:relative;flex:none;font-size:clamp(22px,6cqh,44px)}
+.batt::after{content:"";position:absolute;right:-6px;top:28%;width:3px;height:44%;background:currentColor;border-radius:0 2px 2px 0}
+.batt i{display:block;height:100%;background:var(--accent);border-radius:2px}
+.actions{display:flex;align-items:center;gap:10px;padding:8px clamp(12px,2cqw,20px);border-bottom:1px solid var(--line);flex:none;flex-wrap:wrap}
+.actions label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+.actions input{font:inherit;width:56px;height:28px;padding:0 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
+.confirm{display:inline-flex;align-items:center;gap:8px;color:var(--bad);font-weight:600}
+
+.logbox{flex:1;min-height:0;display:flex;flex-direction:column}
+.loghead{display:flex;align-items:center;gap:10px;height:28px;padding:0 clamp(12px,2cqw,20px);background:var(--panel);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);flex:none}
+.loghead b{color:var(--fg)}
+.jump{font-size:12px;height:22px;padding:0 8px}
+.scroll{flex:1;overflow:auto;min-height:0;overflow-anchor:none;contain:strict}
+table{border-collapse:collapse;width:100%;min-width:560px;table-layout:fixed}
+th,td{height:22px;padding:0 clamp(12px,2cqw,20px);text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line)}
+th{position:sticky;top:0;background:var(--bg);font-weight:600;font-size:12px;color:var(--muted);z-index:1}
+td.n,th.n{text-align:right}
+tr.ev td{font-weight:600} tr.ps td{background:var(--wait-soft);color:var(--wait);font-weight:600}
+tr.gap td{background:var(--gap);color:var(--muted)} tr.alarm td{color:var(--bad);font-weight:600}
+tr.older td{color:var(--muted);font-style:italic}
+tr.new td{animation:hl 1.4s ease-out}
+@keyframes hl{from{background:var(--go-soft)}}
+
+/* ---------- done ---------- */
+.done{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:0;overflow:auto}
+.done .left{padding:clamp(16px,4cqh,36px) clamp(20px,4cqw,48px);display:flex;flex-direction:column;gap:clamp(8px,2cqh,16px);justify-content:center;border-right:1px solid var(--line)}
+.finished{display:flex;align-items:center;gap:12px;font-size:clamp(22px,5cqh,36px);font-weight:700;color:var(--go)}
+.finished i{width:1.2em;height:1.2em;border-radius:50%;background:var(--go);color:var(--bg);display:grid;place-items:center;font-style:normal;font-size:.75em}
+.runtime{font-size:clamp(60px,19cqh,150px);font-weight:700;line-height:.9;letter-spacing:-.03em}
+.runtime small{font-size:.32em;font-weight:600;color:var(--muted);letter-spacing:0}
+.range{font-size:clamp(16px,3.4cqh,24px);color:var(--muted)}
+.saved{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:6px;background:var(--go-soft);color:var(--fg)}
+.saved.bad{background:var(--bad-soft)}
+.saved svg{flex:none;width:28px;height:28px;color:var(--go)}
+.saved.bad svg{color:var(--bad)}
+.saved b{display:block;font-size:clamp(15px,3cqh,19px)}
+.saved span{font-size:12px;color:var(--muted);word-break:break-all}
+.done .btns{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.done .right{padding:clamp(16px,4cqh,36px) clamp(20px,4cqw,48px);display:grid;grid-template-columns:1fr 1fr;align-content:center;gap:clamp(10px,2.6cqh,22px) 24px}
+.fact .k{font-size:12px;color:var(--muted)}
+.fact .v{font-size:clamp(22px,5.4cqh,38px);font-weight:700;line-height:1.1}
+.fact .s{font-size:12px;color:var(--muted)}
+
+
+/* ---------- overlays: countdown, update, alarm ---------- */
+.ov{position:absolute;inset:40px 0 0;background:var(--scrim);display:grid;place-items:center;padding:16px;z-index:5}
+.modal{background:var(--bg);border:1px solid var(--line);border-radius:8px;width:min(520px,100%);padding:clamp(18px,4cqh,30px) clamp(20px,4cqw,32px);display:flex;flex-direction:column;gap:clamp(10px,2.2cqh,16px);box-shadow:0 12px 40px rgba(0,0,0,.25)}
+.modal h2{margin:0;font-size:clamp(20px,4.6cqh,28px);font-weight:700;display:flex;align-items:center;gap:10px}
+.modal .vline{font-size:13px;color:var(--muted);margin:0}
+.bar{height:14px;border-radius:7px;background:var(--panel);border:1px solid var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:7px;transition:width .4s linear}
+.bar.indet i{width:35%!important;animation:indet 1.3s ease-in-out infinite}
+@keyframes indet{from{transform:translateX(-110%)}to{transform:translateX(300%)}}
+.bar.full i{background:var(--go)}
+.barrow{display:flex;justify-content:space-between;font-size:clamp(14px,2.8cqh,17px);font-weight:600;margin:0}
+.barrow span:last-child{color:var(--muted);font-weight:500}
+.modal .note{font-size:12px;color:var(--muted);margin:0}
+.modal .btns{display:flex;justify-content:flex-end;gap:8px}
+.okmark{width:1.3em;height:1.3em;border-radius:50%;background:var(--go);color:var(--bg);display:grid;place-items:center;font-size:.7em}
+.failmark{width:1.3em;height:1.3em;border-radius:50%;background:var(--bad);color:var(--bg);display:grid;place-items:center;font-size:.7em}
+.steps{display:flex;gap:6px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.steps span{display:inline-flex;align-items:center;gap:5px}
+.steps span::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--line)}
+.steps span.on{color:var(--fg);font-weight:600} .steps span.on::before{background:var(--accent)}
+.steps span.ok::before{background:var(--go)}
+
+.alarmbox{background:var(--bg);border-radius:8px;border-top:6px solid var(--bad);width:min(560px,100%);padding:clamp(18px,4cqh,30px);display:grid;grid-template-columns:auto 1fr;gap:6px 22px;align-items:center;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+.alarmbox .pct{font-size:clamp(60px,18cqh,120px);font-weight:800;color:var(--bad);line-height:.9;grid-row:span 2}
+.alarmbox .t{font-size:clamp(22px,5cqh,34px);font-weight:700}
+.alarmbox .s{color:var(--muted);font-size:14px}
+.alarmbox .sound{grid-column:1/-1;color:var(--bad);font-weight:600}
+.alarmbox button{grid-column:1/-1;justify-self:stretch}
+
+.toast{position:absolute;top:50px;right:14px;z-index:6;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:6px;background:var(--fg);color:var(--bg);font-size:15px;font-weight:600;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.toast i{width:22px;height:22px;border-radius:50%;background:var(--go);color:#fff;display:grid;place-items:center;font-style:normal;font-size:13px}
+
+@container (max-width:760px){
+  .pre{grid-template-columns:1fr;justify-items:start}
+  .pre .art{width:clamp(110px,26cqh,180px)}
+  .stats{grid-template-columns:1fr 1fr}
+  .stat:nth-child(2){border-right:0}
+  .done{grid-template-columns:1fr} .done .left{border-right:0;border-bottom:1px solid var(--line)}
+  .band{grid-template-columns:1fr} .clock{text-align:left}
+}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="app" id="app">
   <header>
     <div class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/><path d="M11 9l-2 3h4l-2 3"/></svg></div>
     <h1>Battery Logger</h1>
     <span class="unit" id="unit"></span>
     <span class="spacer"></span>
-    <span class="pill" id="helper"><span class="dot"></span>Windows data</span>
+    <span class="chip off" id="helper" hidden></span>
+    <span class="chip" id="updChip" hidden></span>
     <span class="ver" id="ver"></span>
   </header>
 
-  <!-- One band, five states: ready (checklist) · count (3.. 2.. 1..) · logging · paused · done. The exe decides. -->
-  <section class="band ready" id="band" aria-live="polite">
-    <div id="bReady" style="display:contents">
-      <ul class="checks" id="checks">
-        <li id="cBat"><span class="ck">✓</span><span id="cBatT">Battery found</span></li>
-        <li id="cPct"><span class="ck">✓</span><span id="cPctT">Charged to 96% or more</span></li>
-        <li id="cAc"><span class="ck">✓</span><span id="cAcT">Charger unplugged</span></li>
-      </ul>
-      <span class="spacer"></span>
-      <span class="confirm" id="readyMsg" hidden></span>
-      <button class="primary" id="startBtn" hidden>Start</button>
-    </div>
-    <div id="bCount" style="display:contents" hidden>
-      <span class="big"><span>All conditions are met, starting logging in <span id="cd">3</span>..</span></span>
-      <span class="spacer"></span>
-      <button id="cancelBtn">Cancel</button>
-    </div>
-    <div id="bLog" style="display:contents" hidden>
-      <span class="big"><span class="pulse" id="pulse"></span><span id="bigWord">LOGGING</span></span>
-      <span class="clockbig" id="elapsed">0:00:00</span>
-      <span class="sub" id="eta">Measuring…</span>
-      <span class="spacer"></span>
-      <label class="f" for="alarmPct">Alarm at <input type="number" id="alarmPct" min="10" max="50" value="15">%</label>
-      <button class="danger" id="stopBtn">Stop</button>
-      <span class="confirm" id="stopConfirm" hidden>End the test now? <button class="danger" id="stopYes">End test</button><button id="stopNo">Keep running</button></span>
-    </div>
-    <div id="bDone" style="display:contents" hidden>
-      <span class="big">Test finished</span>
-      <span class="sub" id="doneSub"></span>
-      <span class="spacer"></span>
-      <span class="sound" id="soundNote" hidden>Click anywhere to enable the alarm sound</span>
-      <span class="confirm" id="csvMsg" hidden></span>
-      <button id="csvBtn">Save CSV</button>
-      <button class="primary" id="newBtn">New test</button>
-    </div>
-  </section>
+  <!-- One stage fills the window; the exe decides which (logic.js stageView). -->
+  <div class="stage" id="stage" aria-live="polite">
+    <section id="sPre" hidden>
+      <div class="pre" id="pre">
+        <div class="art" id="art"></div>
+        <div class="say">
+          <div class="bigpct" id="bigpct"></div>
+          <p class="step" id="step"></p>
+          <p class="hint" id="hint"></p>
+          <div id="startWrap" hidden><button class="primary huge" id="startBtn">Start</button></div>
+          <span class="msg" id="preMsg" hidden></span>
+          <div class="conds"><span class="cond" id="cB"><i>✓</i>Battery found</span><span class="cond" id="cP"><i>✓</i>Charged to 96%+</span><span class="cond" id="cA"><i>✓</i>Charger unplugged</span></div>
+        </div>
+      </div>
+    </section>
 
-  <section class="stats" aria-label="Battery now">
-    <div class="stat"><span class="k">Charge</span><span class="v"><span class="batt" id="battIcon"><i id="battFill" style="width:0%"></i></span><span id="pct">--%</span></span><span class="s" id="pctSub">n/a</span></div>
-    <div class="stat"><span class="k">Health</span><span class="v" id="health">n/a</span><span class="s" id="healthSub">n/a</span></div>
-    <div class="stat"><span class="k">Power</span><span class="v" id="watts">n/a</span><span class="s" id="wattsSub">n/a</span></div>
-    <div class="stat"><span class="k">Result</span><span class="v" id="resV">—</span><span class="s" id="resS">Shown when the test ends</span></div>
-  </section>
+    <section id="sRun" hidden>
+      <div class="band log" id="band">
+        <div class="word" id="word"><span class="dot" id="wDot"></span><span class="bars" id="wBars" hidden><i></i><i></i></span><span id="bigWord">LOGGING</span></div>
+        <div class="clock"><span id="elapsed">0:00:00</span><small id="clockSub">elapsed</small></div>
+        <div class="bandsub" id="bandsub"></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><span class="k">Charge</span><span class="v"><span class="batt"><i id="battFill" style="width:0%"></i></span><span id="pct">--%</span></span><span class="s" id="pctSub"></span></div>
+        <div class="stat"><span class="k">Time to alarm</span><span class="v" id="eta">Measuring…</span><span class="s" id="etaSub"></span></div>
+        <div class="stat"><span class="k">Power</span><span class="v m" id="watts">n/a</span><span class="s" id="wattsSub"></span></div>
+        <div class="stat"><span class="k">Health</span><span class="v m" id="health">n/a</span><span class="s" id="healthSub"></span></div>
+      </div>
+      <div class="actions">
+        <label for="alarmPct">Alarm at <input type="number" id="alarmPct" min="10" max="50" value="15">%</label>
+        <span class="spacer"></span>
+        <button class="danger" id="stopBtn">Stop test</button>
+        <span class="confirm" id="stopConfirm" hidden>End the test now? <button class="danger" id="stopYes">End test</button><button id="stopNo">Keep running</button></span>
+      </div>
+      <div class="logbox">
+        <div class="loghead"><b>Log</b><span id="rowCount">0 rows</span><span>· newest on top</span><span class="spacer"></span><button class="jump" id="jumpBtn" hidden>Newest ↑</button></div>
+        <div class="scroll" id="scroll">
+          <table>
+            <colgroup><col style="width:16%"><col style="width:30%"><col style="width:10%"><col style="width:12%"><col style="width:12%"><col style="width:20%"></colgroup>
+            <thead><tr><th>Time</th><th>Event</th><th class="n">%</th><th class="n">Wh</th><th class="n">W</th><th class="n">Elapsed</th></tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
 
-  <section class="chart" aria-label="Charge over time">
-    <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>Charge %</span><span><i class="sw" style="background:var(--warn)"></i>Watts</span><span><i class="sw" style="background:var(--gap);height:8px"></i>Gap</span></div>
-    <svg id="chart" viewBox="0 0 1000 120" preserveAspectRatio="none" role="img" aria-label="Charge and power over time"></svg>
-  </section>
+    <section id="sDone" hidden>
+      <div class="done">
+        <div class="left">
+          <div class="finished"><i>✓</i>Test finished</div>
+          <div class="runtime" id="runtime"></div>
+          <div class="range" id="range"></div>
+          <div class="saved" id="saved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M9 15l2 2 4-4"/></svg><div><b id="savedT">Report saved to the Desktop</b><span id="savedF"></span></div></div>
+          <div class="btns"><button class="primary huge" id="newBtn">New test</button><button class="huge" id="openBtn">Open report</button><button class="huge" id="csvBtn" hidden>Save CSV</button><span class="msg" id="doneMsg" hidden></span><span class="msg" id="csvMsg" hidden></span></div>
+        </div>
+        <div class="right" id="facts"></div>
+      </div>
+    </section>
 
-  <section class="log" aria-label="Log">
-    <div class="loghead"><b>Log</b><span id="rowCount">0 rows</span><span class="spacer"></span><button class="jump" id="jumpBtn" hidden>Newest ↑</button></div>
-    <div class="scroll" id="scroll">
-      <table>
-        <colgroup><col style="width:90px"><col><col style="width:60px"><col style="width:70px"><col style="width:60px"><col style="width:90px"></colgroup>
-        <thead><tr><th>Time</th><th>Event</th><th class="n">%</th><th class="n">Wh</th><th class="n">W</th><th class="n">Elapsed</th></tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
+  </div>
+
+  <div id="overlay">
+    <div class="ov" id="cdOv" hidden>
+      <div class="cdpop" role="alertdialog" aria-labelledby="cdT">
+        <p class="t1" id="cdT">All conditions met!</p>
+        <p class="t2">Starting battery logging in <span id="cdw">3...</span></p>
+        <div class="ring"><svg viewBox="0 0 200 200"><circle cx="100" cy="100" r="96" fill="none" stroke="rgba(255,255,255,.25)" stroke-width="8"/><circle id="arc" class="arc" cx="100" cy="100" r="96" fill="none" stroke="#fff" stroke-width="8" stroke-dasharray="603" stroke-linecap="round"/></svg><span class="num" id="cdn">3</span></div>
+        <button class="huge" id="cancelBtn">Cancel</button>
+        <p class="t3">Plugging the charger back in also cancels.</p>
+      </div>
     </div>
-  </section>
+    <div class="ov" id="updOv" hidden><div class="modal" role="dialog" id="updModal"></div></div>
+    <div class="ov" id="alarm" hidden>
+      <div class="alarmbox" role="alertdialog" aria-labelledby="alarmT">
+        <div class="pct" id="alarmPctV">15%</div>
+        <div class="t" id="alarmT">Plug in the charger</div>
+        <div class="s" id="alarmS">The test is done and the report is saved to the Desktop. Beeping until you click OK.</div>
+        <div class="sound" id="soundNote" hidden>Click anywhere to enable the alarm sound</div>
+        <button class="primary huge" id="aOk">OK</button>
+      </div>
+    </div>
+    <div class="toast" id="toast" role="status" hidden><i>✓</i><span id="toastT"></span></div>
+  </div>
 </div>
-
-<div class="ov" id="alarm" hidden role="alertdialog" aria-labelledby="alarmT">
-  <div class="box"><b id="alarmPctV">15%</b><div id="alarmT">Plug in the charger. The test is done and the report is saved to the Desktop.</div><button class="primary" id="alarmOk">OK</button></div>
-</div>
-<div class="toast" id="toast" hidden></div>
 
 <!-- The one report template. The exe fills it (Report.cs) and so does browser-only mode (fillReport). -->
 <template id="report"><!-- Slots (api-contract.md; plain = escaped, *Html = raw): unitModel, unitSerial, computerName, date, startTime, endTime,
@@ -225,7 +342,7 @@ tr.gap td{background:#eef1f4;color:#6b737c}tr.alarm td{color:#c23934;font-weight
 var L = window.LaptapLogic;
 var $ = function (id) { return document.getElementById(id); };
 var FILE = location.protocol === 'file:';
-var CAP = 20000;   // rows in the DOM (I12); the chart's samples and the CSV are never capped
+var CAP = 20000;   // rows in the DOM (I12); the CSV is never capped
 
 // ---- token: read from #t=, kept for this window in sessionStorage (F5 keeps working), removed from the address bar ----
 var token = (location.hash.match(/[#&]t=([0-9a-f]+)/) || [])[1] || '';
@@ -235,9 +352,10 @@ try {
 } catch (e) {}
 if (location.hash) history.replaceState(null, '', location.pathname + location.search);
 
-var st = { rev: 0, samples: [], events: [], snap: null, sessionId: null, chartKey: null, domRows: 0, totalRows: 0, olderRow: null,
-  polledAt: 0, serverNow: 0, mode: null };
-var fails = 0, lost = false, lastHb = 0, pollTimer = null, tickTimer = null, audio = null, beepTimer = null, ackedId = null;
+var st = { rev: 0, samples: [], events: [], snap: null, sessionId: null, domRows: 0, totalRows: 0, olderRow: null,
+  polledAt: 0, serverNow: 0, mode: null, stage: null };
+var fails = 0, lost = false, done = false, lastHb = 0, pollTimer = null, tickTimer = null, audio = null, beepTimer = null, ackedId = null;
+var hide = {}, checkingSince = null, restarting = null, toastTimer = null, hbTimer = null;
 
 function api(path, method, body) {
   if (FILE) return Local.request(path, method || 'GET', body);
@@ -248,35 +366,47 @@ function api(path, method, body) {
 }
 
 // ---- polling (E7): Ready/Countdown 1 s while visible; Logging/Paused 5 s visible, 30 s hidden; Done 30 s.
-//      Hidden in Ready/Countdown: no state polls (so no auto-start), only the 60 s heartbeat that keeps the exe alive.
+//      Hidden in Ready/Countdown: no state polls (so no auto-start), only the heartbeat that keeps the exe alive.
+//      v15.1: while an update is under way in Done, poll 1 s (5 s hidden) for the progress; Ready already polls 1 s
+//      while visible, and a hidden Ready page still never polls (a hidden page needs no progress).
+// ---- heartbeat (v15.1 §3): {visible} every 5 s while visible, every 30 s while hidden (L.heartbeatEvery), and once
+//      at each visibility change. With no test, the exe exits ~15 s after a visible page goes quiet (window closed),
+//      90 s after a hidden one. The heartbeat rides along the polls; Done's 30 s polls get a 5 s heartbeat timer.
+function updating() { var u = st.snap && st.snap.app && st.snap.app.update; return !!(u && L.ACTIVE_UPDATE[u.phase]); }
 function cadence() {
   var m = st.mode || 'ready';
-  if (m === 'ready' || m === 'count') return document.hidden ? null : 1000;
+  if (m === 'ready' || m === 'count') return document.hidden ? null : 1000;   // hidden: no polls, so no auto-start (E7/S1; audit I1)
+  if (m === 'done' && updating()) return document.hidden ? 5000 : 1000;
   if (m === 'done') return 30000;
   return document.hidden ? 30000 : 5000;
 }
-function heartbeat() {
-  if (Date.now() - lastHb < 60000) return Promise.resolve();
+function heartbeat(force) {
+  if (!force && Date.now() - lastHb < L.heartbeatEvery(document.hidden) - 50) return Promise.resolve();
   lastHb = Date.now();
-  return api('/api/heartbeat', 'POST').catch(function () {});
+  return api('/api/heartbeat', 'POST', { visible: !document.hidden }).catch(function () {});
 }
 function schedule() {
-  clearTimeout(pollTimer);
-  if (lost) return;
-  var ms = cadence();
-  if (ms == null) pollTimer = setTimeout(function () { heartbeat().then(schedule); }, 60000);
-  else pollTimer = setTimeout(poll, ms);
+  clearTimeout(pollTimer); clearTimeout(hbTimer);
+  if (lost || done) return;
+  var ms = cadence(), every = L.heartbeatEvery(document.hidden);
+  if (ms == null) { pollTimer = setTimeout(function () { heartbeat().then(schedule); }, every); return; }
+  pollTimer = setTimeout(poll, ms);
+  if (ms > every) hbTimer = setTimeout(function hb() { heartbeat().then(function () { if (!done && !lost) hbTimer = setTimeout(hb, every); }); }, every);
 }
 function poll() {
   clearTimeout(pollTimer);
+  if (done) return Promise.resolve();
   return heartbeat()
     .then(function () { return api('/api/state?since=' + st.rev); })
     .then(function (s) { fails = 0; apply(s); }, function () { if (++fails >= 3) loggerLost(); })
     .then(schedule);
 }
 document.addEventListener('visibilitychange', function () {
+  document.body.classList.toggle('hid', document.hidden);   // the pre-test animations pause while hidden
+  if (lost || done) return;
+  heartbeat(true);   // tell the exe at once: visible → 15 s rule, hidden → 90 s rule
   if (document.hidden) { tickOnce(true); clearTimeout(tickTimer); schedule(); }
-  else if (!lost) { poll(); startTick(); }
+  else { poll(); startTick(); }
 });
 
 // ---- compare-before-write: nothing changed → nothing written to the DOM ----
@@ -285,11 +415,13 @@ function setProp(id, k, v) { var el = $(id); if (el[k] !== v) el[k] = v; }
 function setStyle(id, k, v) { var el = $(id); if (el.style[k] !== v) el.style[k] = v; }
 function setHtml(id, h) { var el = $(id); if (el.__h !== h) { el.__h = h; el.innerHTML = h; } }
 
+function disableAll() { [].forEach.call(document.querySelectorAll('button,input'), function (b) { b.disabled = true; }); }
 function loggerLost() {
   lost = true;
-  setProp('helper', 'className', 'pill off');
-  setHtml('helper', '<span class="dot off"></span>Logger stopped. Open Laptap Battery Logger again.');
-  ['startBtn', 'cancelBtn', 'stopBtn', 'csvBtn', 'newBtn', 'stopYes', 'alarmPct'].forEach(function (id) { setProp(id, 'disabled', true); });
+  setText('helper', 'Logger stopped. Open Laptap Battery Logger again.');
+  setProp('helper', 'hidden', false);
+  disableAll();
+  setProp('cdOv', 'hidden', true); setProp('updOv', 'hidden', true);
 }
 
 // ---- formatting ----
@@ -297,7 +429,10 @@ function wh(m) { return m == null ? '' : (m / 1000).toFixed(1); }
 function w(mw) { return mw == null ? '' : (mw / 1000).toFixed(1); }
 function pad(n) { return (n < 10 ? '0' : '') + n; }
 function clock(ms) { var d = new Date(ms); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+function hm(ms) { var d = new Date(ms); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
 function pct(p) { return p == null ? 'n/a' : p + '%'; }
+function esc(s) { return L.escapeHtml(s); }
+function serverNow() { return st.serverNow + (Date.now() - st.polledAt); }
 
 // §7 table wording from the event type + note.
 function rowLabel(e) {
@@ -319,16 +454,16 @@ function rowLabel(e) {
     default: return e.type;
   }
 }
-function rowKind(e) { return e.type === 'reading' ? '' : e.type === 'gap' ? 'gap' : (e.type === 'alarm' || e.type === 'report_failed') ? 'alarm' : 'ev'; }
+function rowKind(e) { return e.type === 'reading' ? '' : e.type === 'gap' ? 'gap' : e.type === 'charger_in' ? 'ps' : (e.type === 'alarm' || e.type === 'report_failed') ? 'alarm' : 'ev'; }
 function rowHtml(r, live) {
-  return '<tr class="' + rowKind(r) + (live ? ' new' : '') + '"><td>' + clock(r.ms) + '</td><td>' + L.escapeHtml(rowLabel(r)) + '</td><td class="n">' +
-    (r.pct == null ? '' : r.pct) + '</td><td class="n">' + wh(r.mwh) + '</td><td class="n">' + w(r.rateMw) + '</td><td class="n">' +
+  return '<tr class="' + rowKind(r) + (live ? ' new' : '') + '"><td>' + clock(r.ms) + '</td><td>' + esc(rowLabel(r)) + '</td><td class="n">' +
+    (r.pct == null ? '' : r.pct + '%') + '</td><td class="n">' + wh(r.mwh) + '</td><td class="n">' + w(r.rateMw) + '</td><td class="n">' +
     L.fmtElapsed(r.elapsedS) + '</td></tr>';
 }
 
 function resetLog() {
   var el = $('rows'); el.__h = null; el.textContent = '';
-  st.samples = []; st.events = []; st.domRows = 0; st.totalRows = 0; st.olderRow = null; st.chartKey = null;
+  st.samples = []; st.events = []; st.domRows = 0; st.totalRows = 0; st.olderRow = null;
   setText('rowCount', '0 rows'); setProp('jumpBtn', 'hidden', true);
 }
 
@@ -383,34 +518,69 @@ function reducedMotion() { return window.matchMedia && window.matchMedia('(prefe
 $('jumpBtn').onclick = function () { $('scroll').scrollTop = 0; setProp('jumpBtn', 'hidden', true); };
 $('scroll').addEventListener('scroll', function () { if ($('scroll').scrollTop < 4) setProp('jumpBtn', 'hidden', true); }, { passive: true });
 
-// Live health = logic.health over Σ batteries; shown capped at 100, one decimal.
-function healthOf(bats) {
+// Σ batteries: full / design mWh (null if any battery doesn't report).
+function capOf(bats) {
   var full = 0, design = 0, ok = bats.length > 0;
   bats.forEach(function (b) { if (b.fullMwh == null || b.designMwh == null) ok = false; else { full += b.fullMwh; design += b.designMwh; } });
-  if (!ok) return { shown: null, full: null, design: null };
-  return { shown: L.health(full, design).shown, full: full, design: design };
+  return ok ? { full: full, design: design } : null;
 }
 function cyclesText(bats) {
   if (!bats.length) return 'n/a';
   return bats.map(function (b) { return b.cycles == null ? 'n/a' : String(b.cycles); }).join(' / ');
 }
+function healthText(p) { return p == null ? 'n/a' : Math.min(100, p).toFixed(1) + '%'; }
 
 // Counted seconds now: Σ segments, an open one running to the server's now plus local drift since the poll.
 function countedNow() {
   var sess = st.snap && st.snap.session;
   if (!sess) return 0;
-  var now = st.serverNow + (Date.now() - st.polledAt), t = 0;
+  var now = serverNow(), t = 0;
   (sess.segments || []).forEach(function (g) { t += ((g.endMs == null ? (sess.status === 'running' ? now : g.startMs) : g.endMs) - g.startMs) / 1000; });
   return Math.max(0, t);
 }
 
+// ---------------- pictures (prototype v15.1) ----------------
+function battSvg(p, o) {
+  o = o || {};
+  var wd = Math.max(0, Math.min(100, p || 0)) * 1.56, col = o.col || 'var(--accent)';
+  return '<svg viewBox="0 0 220 220" aria-hidden="true">' +
+    '<rect x="18" y="62" width="172" height="96" rx="14" fill="none" stroke="var(--fg)" stroke-width="8"/>' +
+    '<rect x="192" y="92" width="14" height="36" rx="4" fill="var(--fg)"/>' +
+    (o.empty ? '' : '<rect x="26" y="70" width="' + wd + '" height="80" rx="8" fill="' + col + '"/>') +
+    (o.bolt ? '<path class="bolt" d="M114 76 86 116h22l-8 30 30-42h-22l6-28z" fill="var(--fg)" stroke="var(--bg)" stroke-width="4" stroke-linejoin="round"/>' : '') +
+    (o.x ? '<path d="M76 84l56 52M132 84l-56 52" stroke="var(--bad)" stroke-width="12" stroke-linecap="round"/>' : '') +
+    '</svg>';
+}
+function plugSvg() {
+  return '<svg viewBox="0 0 220 220" aria-hidden="true">' +
+    '<rect x="150" y="60" width="56" height="100" rx="10" fill="var(--panel)" stroke="var(--fg)" stroke-width="6"/>' +
+    '<rect x="166" y="92" width="6" height="16" rx="2" fill="var(--fg)"/><rect x="184" y="92" width="6" height="16" rx="2" fill="var(--fg)"/>' +
+    '<g class="plug"><path d="M-10 118 C 30 118, 40 110, 78 110" fill="none" stroke="var(--fg)" stroke-width="8" stroke-linecap="round"/>' +
+    '<rect x="76" y="80" width="60" height="60" rx="10" fill="var(--accent)"/>' +
+    '<rect x="136" y="94" width="18" height="7" rx="2" fill="var(--fg)"/><rect x="136" y="115" width="18" height="7" rx="2" fill="var(--fg)"/></g>' +
+    '<g class="arrowhint" fill="none" stroke="var(--accent)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"><path d="M100 176h-60"/><path d="M58 160 40 176l18 16"/></g>' +
+    '</svg>';
+}
+function dlSvg(p) {
+  return '<svg viewBox="0 0 220 220" aria-hidden="true"><circle cx="110" cy="110" r="86" fill="none" stroke="var(--line)" stroke-width="12"/>' +
+    '<circle cx="110" cy="110" r="86" fill="none" stroke="var(--accent)" stroke-width="12" stroke-dasharray="540" stroke-dashoffset="' + Math.round(540 * (1 - p / 100)) + '" stroke-linecap="round" transform="rotate(-90 110 110)"/>' +
+    '<path d="M110 64v70M82 108l28 28 28-28M78 154h64" fill="none" stroke="var(--fg)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
+// ---------------- render ----------------
+function modeOf(stage) {
+  if (stage === 'countdown') return 'count';
+  if (stage === 'logging' || stage === 'paused' || stage === 'done') return stage;
+  return 'ready';
+}
+
 function render(s) {
-  var n = s.now || {}, sess = s.session, bats = s.batteries || [], app = s.app || {}, u = s.unit || {};
+  var n = s.now || {}, sess = s.session, bats = s.batteries || [], app = s.app || {}, u = s.unit || {}, ck = s.checks || {};
+  var v = L.stageView(s), prevMode = st.mode;
+  st.stage = v.stage; st.mode = modeOf(v.stage);
   setText('unit', [u.model || u.maker || '', u.serial || ''].filter(Boolean).join(' · '));
-  if (!lost) {
-    setProp('helper', 'className', FILE ? 'pill off' : 'pill');
-    setHtml('helper', FILE ? '<span class="dot off"></span>Browser only · no health' : '<span class="dot"></span>Windows data');
-  }
+  if (FILE && !lost) { setText('helper', 'Browser only · no health'); setProp('helper', 'hidden', false); }
+
   // Version + update note (tooltip only) + "Updated to vX" once per version (M5)
   setText('ver', app.version ? 'v' + app.version : '');
   setProp('ver', 'title', app.updateNote || '');
@@ -419,86 +589,297 @@ function render(s) {
     var seen = null; try { seen = sessionStorage.getItem('laptapToastShown'); } catch (e) {}
     if (seen !== app.version) {
       try { sessionStorage.setItem('laptapToastShown', app.version); } catch (e) {}
-      $('toast').textContent = 'Updated to v' + app.version; $('toast').hidden = false;
-      setTimeout(function () { $('toast').hidden = true; }, 6000);
+      setText('toastT', 'Updated to v' + app.version); setProp('toast', 'hidden', false);
+      clearTimeout(toastTimer); toastTimer = setTimeout(function () { setProp('toast', 'hidden', true); }, 5000);
     }
   }
 
-  // The band (plan §3)
-  var b = L.bandView(s);
-  var prevMode = st.mode; st.mode = b.mode;
-  setProp('band', 'className', 'band ' + b.mode);
-  setProp('bReady', 'hidden', b.mode !== 'ready');
-  setProp('bCount', 'hidden', b.mode !== 'count');
-  setProp('bLog', 'hidden', !(b.mode === 'logging' || b.mode === 'paused'));
-  setProp('bDone', 'hidden', b.mode !== 'done');
-  if (b.mode === 'ready' || b.mode === 'count') {
-    var ids = { battery: 'cBat', pct96: 'cPct', unplugged: 'cAc' };
-    b.checks.forEach(function (c) { setProp(ids[c.id], 'className', c.ok ? 'ok' : ''); setText(ids[c.id] + 'T', c.text); });
-    setProp('startBtn', 'hidden', !b.showStart);
-    if (b.mode === 'count') setText('cd', String(countdownDigit()));
-  }
-  if (b.mode === 'logging' || b.mode === 'paused') {
-    setText('bigWord', b.mode === 'paused' ? 'PAUSED · charger plugged in' : 'LOGGING');
-    setProp('pulse', 'hidden', b.mode === 'paused');
-    if (!document.hidden) tickOnce(false);   // hidden: h:mm is written once on hide, never by a poll (E7)
-    var eta = 'Unplug to continue';
-    if (b.mode === 'logging') {
-      var pts = st.samples.filter(function (x) { return !x.ac && x.pct != null; }).map(function (x) { return { e: x.elapsedS, pct: x.pct }; });
-      var left = pts.length >= 5 ? L.etaToAlarm(pts, sess.alarmPct) : null;
-      eta = left == null ? 'Measuring…' : 'About ' + L.fmtHm(left) + ' to alarm';
-    }
-    setText('eta', eta);
-    if (document.activeElement !== $('alarmPct') && $('alarmPct').value !== String(sess.alarmPct)) $('alarmPct').value = sess.alarmPct;
-    if (!lost) setProp('stopBtn', 'disabled', false);
-  } else { setProp('stopConfirm', 'hidden', true); setProp('stopBtn', 'hidden', false); }
-  if (b.mode === 'done') setText('doneSub', b.sub);
-  if (prevMode !== b.mode) { setProp('readyMsg', 'hidden', true); setProp('csvMsg', 'hidden', true); startTick(); }
+  var pre = v.stage !== 'logging' && v.stage !== 'paused' && v.stage !== 'done';
+  setProp('sPre', 'hidden', !pre);
+  setProp('sRun', 'hidden', !(v.stage === 'logging' || v.stage === 'paused'));
+  setProp('sDone', 'hidden', v.stage !== 'done');
+  if (pre) renderPre(s, v, n, ck, app);
+  setProp('cdOv', 'hidden', v.stage !== 'countdown' || lost);
+  if (v.stage === 'countdown') renderCountdown();
+  renderStats(s, v, n, sess, bats);
+  if (v.stage === 'logging' || v.stage === 'paused') renderRun(s, v, n, sess);
+  else { setProp('stopConfirm', 'hidden', true); setProp('stopBtn', 'hidden', false); }
+  if (v.stage === 'done') renderDone(s, sess, bats);
+  if (prevMode !== st.mode) { setProp('preMsg', 'hidden', true); setProp('doneMsg', 'hidden', true); setProp('csvMsg', 'hidden', true); startTick(); }
 
-  // Stats
-  var alarmPct = sess ? sess.alarmPct : 15;
-  setText('pct', n.pct == null ? '--%' : n.pct + '%');
-  setStyle('battFill', 'width', (n.pct || 0) + '%');
-  setProp('battIcon', 'className', 'batt' + (n.ac ? ' chg' : (n.pct != null && n.pct <= alarmPct ? ' low' : '')));
-  setText('pctSub', n.mwh != null && n.fullMwh != null ? wh(n.mwh) + ' of ' + wh(n.fullMwh) + ' Wh' : (n.mwh != null ? wh(n.mwh) + ' Wh' : 'n/a'));
-  var h = healthOf(bats);
-  setText('health', h.shown == null ? 'n/a' : h.shown.toFixed(1) + '%');
-  setText('healthSub', h.full != null ? wh(h.full) + ' / ' + wh(h.design) + ' Wh design · cycles ' + cyclesText(bats) : 'n/a');
-  setText('watts', n.ac ? 'On AC' : (n.rateMw != null ? w(n.rateMw) + ' W' : 'n/a'));
-  setText('wattsSub', n.pct == null && n.ac == null ? 'n/a' : L.powerState(!!n.ac, !!n.charging, n.pct));
-  var r = sess && sess.status === 'done' ? s.result : null;
-  setText('resV', r ? L.fmtHm(r.runtimeS) : '—');
-  setText('resS', r ? r.startEnd + (r.estFullS != null ? ' · est. 100→0% ' + L.fmtHm(r.estFullS) : '') +
-    (r.healthPct != null ? ' · health ' + Math.min(100, r.healthPct).toFixed(1) + '%' : '') : 'Shown when the test ends');
-
-  var key = (sess ? sess.id + ':' + sess.status + ':' + (sess.segments || []).length : '-') + ':' + st.samples.length + ':' + st.events.length + ':' + alarmPct;
-  if (key !== st.chartKey) { st.chartKey = key; drawChart(sess, alarmPct); }
+  renderUpdate(s, app);
   renderAlarm(s, sess);
 }
 
-function countdownDigit() {
-  var s = st.snap;
-  if (!s || s.countdownEndsMs == null) return 3;
-  var now = st.serverNow + (Date.now() - st.polledAt);
-  return Math.max(1, Math.min(3, Math.ceil((s.countdownEndsMs - now) / 1000)));
+function renderPre(s, v, n, ck, app) {
+  var p = n.pct, upd = app.update || {}, key, art, big = p == null ? '' : p + '<small>%</small>', step, hint, tone = '';
+  switch (v.stage) {
+    case 'nobatt': tone = 'tone-bad'; key = 'nobatt'; art = battSvg(0, { empty: 1, x: 1 }); big = '';
+      step = 'No battery found'; hint = 'This laptop can’t be tested. Check the battery is fitted, then open the logger again.'; break;
+    case 'low': key = 'low' + p; art = battSvg(p, { col: 'var(--wait-ground)' });
+      step = 'Plug in and charge to 96%'; hint = 'The charger is unplugged and the battery is too low to start.'; break;
+    case 'charge': key = 'charge' + p; art = battSvg(p, { bolt: 1 });
+      step = 'Charging… wait for 96%'; hint = Math.max(0, 96 - (p || 0)) + '% to go. Leave the charger in.' + (ck.chargeLimitHint ? ' Check the battery charge-limit setting.' : ''); break;
+    case 'waitupd':
+      var dp = upd.phase === 'downloading' ? (upd.percent || 0) : 100;
+      key = 'dl' + dp; art = dlSvg(dp); big = dp + '<small>%</small>';
+      step = 'Wait. Updating the logger'; hint = 'Downloading v' + (upd.version || '') + '. The test can start as soon as it’s done.'; break;
+    case 'unplug': tone = 'tone-go'; key = 'unplug'; art = plugSvg();
+      step = 'Unplug the charger to start'; hint = 'The test starts by itself 3 seconds after you unplug.'; break;
+    default: tone = 'tone-go'; key = 'ready' + p; art = battSvg(p == null ? 100 : p, { col: 'var(--go)' });
+      step = 'Unplugged. Ready.'; hint = '';
+  }
+  // The hint's mobile-friendly apostrophes: the prototype uses a plain ' in "can't"/"it's" too.
+  hint = hint.replace(/’/g, '\'');
+  setProp('pre', 'className', 'pre ' + tone);
+  if ($('art').__k !== key) { $('art').__k = key; $('art').innerHTML = art; }
+  setHtml('bigpct', big); setProp('bigpct', 'hidden', !big);
+  setText('step', step); setText('hint', hint); setProp('hint', 'hidden', !hint);
+  setProp('startWrap', 'hidden', !v.showStart);
+  var c = function (id, ok, now) { setProp(id, 'className', 'cond' + (ok ? ' ok' : '') + (now ? ' now' : '')); };
+  c('cB', !!ck.battery, v.now === 'b'); c('cP', !!ck.pct96, v.now === 'p'); c('cA', !!ck.unplugged, v.now === 'a');
 }
 
-// The 1 s tick (E7): only while visible, only in Logging (elapsed h:mm:ss) or Countdown (digit). Hidden → h:mm once.
+function leftMs() { var s = st.snap; return s && s.countdownEndsMs != null ? s.countdownEndsMs - serverNow() : null; }
+function renderCountdown() {
+  var d = L.countdownDigit(leftMs());
+  if ($('cdn').textContent !== String(d)) {
+    $('cdn').textContent = String(d);
+    var a = $('arc'); if (a) { var c = a.cloneNode(); a.parentNode.replaceChild(c, a); }   // restart the 1 s sweep
+  }
+  setText('cdw', L.countdownWords(leftMs()));
+}
+
+function renderRun(s, v, n, sess) {
+  var paused = v.stage === 'paused';
+  setProp('band', 'className', paused ? 'band pause' : 'band log');
+  setText('bigWord', paused ? 'PAUSED' : 'LOGGING');
+  setProp('wDot', 'hidden', paused); setProp('wBars', 'hidden', !paused);
+  setText('bandsub', paused ? 'Charger plugged in. Unplug to continue.' : 'Leave the charger unplugged. The test ends by itself at ' + sess.alarmPct + '%.');
+  if (!document.hidden) tickOnce(false);   // hidden: h:mm is written once on hide, never by a poll (E7)
+  if (document.activeElement !== $('alarmPct') && $('alarmPct').value !== String(sess.alarmPct)) $('alarmPct').value = sess.alarmPct;
+  if (!lost) setProp('stopBtn', 'disabled', false);
+}
+
+// The 4 tiles (Logging / Paused). live.* comes from the exe (§5); an exe without it (older contract, browser-only)
+// gets the same rules on the page: the ETA fit over the counted samples and health from ΣFull ÷ ΣDesign.
+function clientEta(sess) {
+  var pts = st.samples.filter(function (x) { return !x.ac && x.pct != null; }).map(function (x) { return { e: x.elapsedS, pct: x.pct }; });
+  return pts.length >= 5 ? L.etaToAlarm(pts, sess.alarmPct) : null;
+}
+function renderStats(s, v, n, sess, bats) {
+  var live = s.live || {}, paused = v.stage === 'paused', running = v.stage === 'logging', cap = capOf(bats);
+  var alarmPct = sess ? sess.alarmPct : 15;
+  setText('pct', n.pct == null ? '--%' : n.pct + '%');
+  setStyle('battFill', 'width', (n.pct || 0) + '%');
+  setText('pctSub', 'alarm at ' + alarmPct + '%');
+  if (running) {
+    var eta = L.fmtHMin(s.live ? live.etaToAlarmS : clientEta(sess));
+    setText('eta', eta == null ? 'Measuring…' : eta); setProp('eta', 'className', eta == null ? 'v m' : 'v');
+    setText('etaSub', eta == null ? '' : 'estimate, gets better over time');
+    setText('watts', n.rateMw != null ? w(n.rateMw) + ' W' : 'n/a');
+    setText('wattsSub', live.avgW == null ? 'Measuring…' : 'avg ' + (+live.avgW).toFixed(1) + ' W');
+  } else {
+    setText('eta', paused ? 'Charging, timer stopped' : 'n/a'); setProp('eta', 'className', paused ? 'v m wrap' : 'v m'); setText('etaSub', '');
+    setText('watts', n.ac ? (n.rateMw != null ? '+' + w(n.rateMw) + ' W' : 'On AC') : (n.rateMw != null ? w(n.rateMw) + ' W' : 'n/a'));
+    setText('wattsSub', n.pct == null && n.ac == null ? 'n/a' : L.powerState(!!n.ac, !!n.charging, n.pct));
+  }
+  var hp = live.healthPct != null ? live.healthPct : (cap ? L.health(cap.full, cap.design).raw : null);
+  setText('health', healthText(hp));
+  setText('healthSub', cap ? wh(cap.full) + ' of ' + wh(cap.design) + ' Wh' : 'n/a');
+}
+
+function fact(k, v, s) { return '<div class="fact"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div><div class="s">' + esc(s) + '</div></div>'; }
+function baseName(p) { return p ? String(p).replace(/^.*[\\\/]/, '') : ''; }
+function renderDone(s, sess, bats) {
+  var r = s.result || {}, cap = capOf(bats);
+  var sec = Math.max(0, Math.round(r.runtimeS || 0)), h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60);
+  setHtml('runtime', h ? h + ' h ' + m + '<small> min</small>' : m + '<small> min</small>');
+  var endEv = null;
+  st.events.forEach(function (e) { if (e.type === 'alarm' || e.type === 'stop' || e.type === 'hibernated' || e.type === 'recovered') endEv = e; });
+  var tail = r.kind === 'alarm' && endEv ? 'alarm reached at ' + hm(endEv.ms) : (r.reason || 'Test finished');
+  setText('range', (r.startEnd ? r.startEnd + ' · ' : '') + tail);
+  var html = r.files && r.files.html;
+  setProp('saved', 'className', html ? 'saved' : 'saved bad');
+  setText('savedT', html ? 'Report saved to the Desktop' : 'Report not saved to the Desktop');
+  setText('savedF', html ? baseName(html) + ' · .csv' : '');
+  setProp('openBtn', 'hidden', !html);
+  setProp('csvBtn', 'hidden', !!html);   // the save failed: the CSV can be tried again (I3)
+  var est = r.estFullEnergyS != null ? r.estFullEnergyS : r.estFullS;
+  var pauses = r.pauseCount || 0;
+  setHtml('facts',
+    fact('est. 100 → 0%', est == null ? 'n/a' : L.fmtHMin(est), r.estFullEnergyS != null ? 'from energy used' : 'from the % drop') +
+    fact('Health', healthText(r.healthPct), cap ? wh(cap.full) + ' of ' + wh(cap.design) + ' Wh' : '') +
+    fact('Average draw', r.avgW == null ? 'n/a' : (+r.avgW).toFixed(1) + ' W', r.minW != null && r.maxW != null ? 'min ' + (+r.minW).toFixed(1) + ' · max ' + (+r.maxW).toFixed(1) + ' W' : '') +
+    fact('Cycles', cyclesText(bats), 'reported by Windows') +
+    fact('Pauses', String(pauses), pauses ? L.fmtHMin(r.pauseS) + ', charger in' : 'none') +
+    fact('Brightness', r.brightnessStart == null ? 'n/a' : r.brightnessStart + '% → ' + (r.brightnessEnd == null ? 'n/a' : r.brightnessEnd + '%'), 'battery saver ' + (r.saver || 'n/a')));
+}
+
+// ---------------- update modal + header chip (§6.3) ----------------
+function stepsRow(ph) {
+  var idx = { downloading: 0, verifying: 1, ready: 2, restarting: 2 }[ph];
+  return '<div class="steps">' + ['Download', 'Check', 'Install'].map(function (x, i) { return '<span class="' + (i < idx ? 'ok' : i === idx ? 'on' : '') + '">' + x + '</span>'; }).join('') + '</div>';
+}
+function mb(b) { return ((b || 0) / 1000000).toFixed(1); }
+function dlLine(u) { return mb(u.bytes) + ' of ' + mb(u.total) + ' MB. The test can start once the update is done.'; }
+// One key per modal layout: the modal is rebuilt only when it changes; the download % is written in place (audit M5).
+function modalKey(ph, app) {
+  var u = app.update || {};
+  return ph + '|' + (app.version || '') + '|' + (u.version || '') + '|' + (ph === 'failed' ? u.note : '') + '|' + (ph === 'ready' ? L.canRestart(st.snap) : '');
+}
+function modalHtml(ph, app) {
+  var u = app.update || {}, cur = app.version || '', nv = u.version || '';
+  var head = '<p class="vline">v' + esc(cur) + ' → v' + esc(nv) + '</p>' + stepsRow(ph);
+  if (ph === 'checking') return '<h2>Checking for updates…</h2><p class="vline">You\'re on v' + esc(cur) + '</p><div class="bar indet"><i></i></div><p class="note">Takes a few seconds. No internet? It skips and the logger opens as normal.</p>';
+  if (ph === 'downloading') return '<h2>Updating the logger</h2>' + head +
+    '<p class="barrow"><span>Downloading update ' + esc(nv) + '…</span><span id="dlPct">' + (u.percent || 0) + '%</span></p><div class="bar"><i id="dlBar" style="width:' + (u.percent || 0) + '%"></i></div>' +
+    '<p class="note" id="dlMb">' + dlLine(u) + '</p><div class="btns"><button id="hideUpd">Hide</button></div>';
+  if (ph === 'verifying') return '<h2>Checking the download…</h2>' + head +
+    '<p class="barrow"><span>Checking it\'s signed by Laptap</span><span>100%</span></p><div class="bar indet"><i></i></div>';
+  if (ph === 'ready') return '<h2><span class="okmark">✓</span>Update ready</h2>' + head + '<div class="bar full"><i style="width:100%"></i></div>' +
+      '<p class="barrow"><span>Installs next time you open the logger.</span><span></span></p>' +
+      '<span class="msg" id="restartMsg" hidden></span>' +
+      '<div class="btns"><button id="okUpd">OK</button>' + (L.canRestart(st.snap) ? '<button class="primary" id="restartBtn">Restart now</button>' : '') + '</div>';
+  if (ph === 'restarting') return '<h2>Restarting…</h2>' + head +
+    '<div class="bar indet"><i></i></div><p class="note">The logger will restart. This window closes and v' + esc(nv) + ' opens by itself.</p>';
+  if (ph === 'failed') return '<h2><span class="failmark">!</span>Update didn\'t download</h2><p class="vline">Still on v' + esc(cur) + '. Testing works as normal.</p>' +
+    (u.note ? '<p class="note">' + esc(u.note) + '</p>' : '') +
+    '<div class="bar"><i style="width:45%;background:var(--bad)"></i></div><div class="btns"><button id="laterUpd">Later</button><button class="primary" id="retryUpd">Try again</button></div>';
+  return '';
+}
+function renderUpdate(s, app) {
+  var u = app.update || {};
+  if (u.phase === 'checking') { if (checkingSince == null) checkingSince = Date.now(); } else checkingSince = null;
+  if (u.phase !== 'downloading') hide.downloading = false;
+  var ph = lost ? null : L.modalView(s, { checkingForMs: checkingSince == null ? 0 : Date.now() - checkingSince, hidden: hide, restarting: !!restarting });
+  setProp('updOv', 'hidden', !ph);
+  if (ph) {
+    var mk = modalKey(ph, app), md = $('updModal');
+    if (md.__k !== mk) { md.__k = mk; md.__h = null; setHtml('updModal', modalHtml(ph, app)); }
+    if (ph === 'downloading') {
+      setText('dlPct', (u.percent || 0) + '%'); setStyle('dlBar', 'width', (u.percent || 0) + '%'); setText('dlMb', dlLine(u));
+    }
+  }
+  var c = L.chipView(s, { hidden: hide });
+  setProp('updChip', 'hidden', !c);
+  if (c) setHtml('updChip', esc(c.kind === 'download' ? 'Downloading v' + u.version : c.text) +
+    (c.kind === 'download' ? '<span class="mini"><i style="width:' + c.percent + '%"></i></span>' + c.percent + '%' : ''));
+}
+$('updOv').addEventListener('click', function (e) {
+  var id = e.target && e.target.id;
+  if (id === 'hideUpd') { hide.downloading = true; render(st.snap); }
+  else if (id === 'laterUpd') { hide.failed = true; render(st.snap); }
+  else if (id === 'retryUpd') { hide.failed = false; command('/api/update-retry', null, null); }
+  else if (id === 'okUpd') { hide.ready = true; render(st.snap); }
+  else if (id === 'restartBtn') { restartNow(); }
+});
+
+// §2.3 Restart now: the exe starts "<self> --after-exit <pid>" and quits; the next start installs the update (the v15
+// start-time swap) and opens a new window. This window shows "Restarting…", stops talking to the exe, then closes.
+function restartNow() {
+  unlockAudio();
+  api('/api/update-restart', 'POST').then(function (r) {
+    if (!r || r.ok === false) { var m = $('restartMsg'); if (m) { m.textContent = (r && r.error) || 'Not now.'; m.hidden = false; } return poll(); }
+    var u = (st.snap && st.snap.app && st.snap.app.update) || {};
+    restarting = u.version || '';
+    done = true; clearTimeout(pollTimer); clearTimeout(hbTimer); clearTimeout(tickTimer);
+    render(st.snap); disableAll();
+    setTimeout(function () { try { window.close(); } catch (e) {} }, 2000);   // if Edge refuses, the screen stays, controls off
+  }, function () { return poll(); });
+}
+
+// The 1 s tick (E7): only while visible: Logging / Paused (clock), Countdown (words), the update modal's own countdown.
 function tickOnce(hidden) {
-  var m = st.mode;
+  var m = st.mode, sess = st.snap && st.snap.session;
   if (m === 'logging' || m === 'paused') {
     var t = countedNow();
     setText('elapsed', hidden ? L.fmtHm(t) : L.fmtElapsed(t));
-  } else if (m === 'count') setText('cd', String(countdownDigit()));
+    setText('clockSub', m === 'paused' && sess && sess.pausedSinceMs != null
+      ? 'timer stopped · paused ' + L.fmtElapsed((serverNow() - sess.pausedSinceMs) / 1000) : m === 'paused' ? 'timer stopped' : 'elapsed');
+  } else if (m === 'count') renderCountdown();
 }
 function startTick() {
   clearTimeout(tickTimer);
-  if (document.hidden || !(st.mode === 'logging' || st.mode === 'count')) return;
-  tickTimer = setTimeout(function () { tickOnce(false); startTick(); }, 1000);
+  if (document.hidden || done || !(st.mode === 'logging' || st.mode === 'paused' || st.mode === 'count')) return;
+  tickTimer = setTimeout(function () { tickOnce(false); startTick(); }, st.mode === 'count' ? 250 : 1000);
 }
 
-// ---- chart: x = wall time since the clock started, so gaps and pauses show as real spans ----
-var VARS = { line: 'var(--line)', muted: 'var(--muted)', warn: 'var(--warn)', gap: 'var(--gap)', bad: 'var(--bad)', accent: 'var(--accent)' };
+// ---- alarm: one AudioContext. Edge is started with autoplay allowed (Program.cs), so it should run without a
+//      click; if it is still suspended when the alarm fires, the box asks for a click (M6). ----
+function unlockAudio() {
+  try {
+    if (!audio) { var AC = window.AudioContext || window.webkitAudioContext; if (AC) audio = new AC(); }
+    if (audio && audio.state === 'suspended') audio.resume();
+  } catch (e) { audio = null; }
+}
+document.addEventListener('click', function () {
+  if (audio && audio.state === 'suspended') audio.resume();
+  if (audio && audio.state !== 'suspended') setProp('soundNote', 'hidden', true);
+}, true);
+function beep() {
+  if (!audio) return;
+  var t = audio.currentTime;
+  [0, 0.3].forEach(function (o) {
+    var osc = audio.createOscillator(), g = audio.createGain();
+    osc.type = 'sine'; osc.frequency.setValueAtTime(880, t + o);
+    g.gain.setValueAtTime(0.2, t + o); g.gain.setValueAtTime(0, t + o + 0.15);
+    osc.connect(g); g.connect(audio.destination); osc.start(t + o); osc.stop(t + o + 0.16);
+  });
+}
+function stopBeep() { clearInterval(beepTimer); beepTimer = null; }
+function renderAlarm(s, sess) {
+  var on = !lost && !!(sess && sess.alarm && !sess.alarmAck && ackedId !== sess.id);
+  if (on && $('alarm').hidden) {
+    var r = s.result || {};
+    $('alarmPctV').textContent = (r.endPct != null ? r.endPct : sess.alarmPct) + '%';
+    $('alarmS').textContent = r.files && r.files.html ? 'The test is done and the report is saved to the Desktop. Beeping until you click OK.'
+      : 'The test is done, but the report could not be saved to the Desktop. Beeping until you click OK.';
+    unlockAudio();
+    setProp('soundNote', 'hidden', !(audio && audio.state === 'suspended'));
+    $('alarm').hidden = false;
+    beep(); stopBeep(); beepTimer = setInterval(beep, 4000);
+  } else if (!on && !$('alarm').hidden) { $('alarm').hidden = true; stopBeep(); }
+}
+$('aOk').onclick = function () {
+  var sess = st.snap && st.snap.session;
+  if (sess) ackedId = sess.id;
+  $('alarm').hidden = true; stopBeep();
+  command('/api/ack-alarm', null, null);
+};
+
+// ---- controls. Any {ok:false}: show it, re-poll and render from /api/state; never assume a state (I10). ----
+function command(path, body, msgId) {
+  unlockAudio();
+  return api(path, 'POST', body).then(function (r) {
+    if (r && r.ok === false && msgId) { $(msgId).textContent = r.error || 'Not now.'; $(msgId).hidden = false; }
+    return poll().then(function () { return r; });
+  }, function () { return poll(); });
+}
+$('startBtn').onclick = function () { command('/api/arm', null, 'preMsg'); };
+$('cancelBtn').onclick = function () { command('/api/cancel', null, 'preMsg'); };
+$('newBtn').onclick = function () { command('/api/new', null, 'doneMsg'); };
+$('openBtn').onclick = function () { command('/api/open-report', null, 'doneMsg'); };
+$('csvBtn').onclick = function () {
+  api('/api/save-csv', 'POST').then(function (r) {
+    if (!r.ok) { $('csvMsg').textContent = r.error || 'Could not save to the Desktop.'; $('csvMsg').hidden = false; return; }
+    $('csvMsg').hidden = true;
+    setText('csvBtn', 'Saved to Desktop');
+    setTimeout(function () { setText('csvBtn', 'Save CSV'); }, 1500);
+  }, function () {});
+};
+$('stopBtn').onclick = function () { $('stopBtn').hidden = true; $('stopConfirm').hidden = false; };
+$('stopNo').onclick = function () { $('stopBtn').hidden = false; $('stopConfirm').hidden = true; };
+$('stopYes').onclick = function () { $('stopBtn').hidden = false; $('stopConfirm').hidden = true; command('/api/stop', null, null); };
+$('alarmPct').onchange = function () {
+  var v = parseInt($('alarmPct').value, 10);
+  command('/api/alarm-pct', { pct: v }, null).then(function (r) {
+    var sess = st.snap && st.snap.session;
+    if (r && r.ok === false && sess) $('alarmPct').value = sess.alarmPct;
+  });
+};
+
+// ---- chart (the browser-only report only; the exe draws its own; the Logging screen has none, G6) ----
 var HEX = { line: '#dfe3e8', muted: '#6b737c', warn: '#b86e00', gap: '#eef1f4', bad: '#c23934', accent: '#0070d2' };
 function chartSvg(samples, view, alarmPct, c, W, H) {
   var Lm = 30, R = 30, T = 6, B = 16, t0 = view ? view.t0 : 0;
@@ -535,86 +916,6 @@ function pausesOf(events) {
   if (cur) out.push(cur);
   return out;
 }
-function viewOf(sess, events) {
-  if (!sess) return null;
-  var segs = sess.segments || [];
-  return { t0: segs.length ? segs[0].startMs : sess.startedMs, gaps: gapsOf(events), pauses: pausesOf(events) };
-}
-function drawChart(sess, alarmPct) {
-  $('chart').innerHTML = chartSvg(sess ? st.samples : [], viewOf(sess, st.events), alarmPct || 15, VARS, 1000, 120);
-}
-
-// ---- alarm: one AudioContext. Edge is started with autoplay allowed (Program.cs), so it should run without a
-//      click; if it is still suspended when the alarm fires, the band asks for a click (M6: test 5 records it). ----
-function unlockAudio() {
-  try {
-    if (!audio) { var AC = window.AudioContext || window.webkitAudioContext; if (AC) audio = new AC(); }
-    if (audio && audio.state === 'suspended') audio.resume();
-  } catch (e) { audio = null; }
-}
-document.addEventListener('click', function () {
-  if (audio && audio.state === 'suspended') audio.resume();
-  if (audio && audio.state !== 'suspended') setProp('soundNote', 'hidden', true);
-}, true);
-function beep() {
-  if (!audio) return;
-  var t = audio.currentTime;
-  [0, 0.3].forEach(function (o) {
-    var osc = audio.createOscillator(), g = audio.createGain();
-    osc.type = 'sine'; osc.frequency.setValueAtTime(880, t + o);
-    g.gain.setValueAtTime(0.2, t + o); g.gain.setValueAtTime(0, t + o + 0.15);
-    osc.connect(g); g.connect(audio.destination); osc.start(t + o); osc.stop(t + o + 0.16);
-  });
-}
-function renderAlarm(s, sess) {
-  var on = !!(sess && sess.alarm && !sess.alarmAck && ackedId !== sess.id);
-  if (on && $('alarm').hidden) {
-    var r = s.result || {};
-    $('alarmPctV').textContent = (r.endPct != null ? r.endPct : sess.alarmPct) + '%';
-    $('alarmT').textContent = r.files && r.files.html ? 'Plug in the charger. The test is done and the report is saved to the Desktop.'
-      : 'Plug in the charger. The test is done, but the report could not be saved to the Desktop.';
-    unlockAudio();
-    setProp('soundNote', 'hidden', !(audio && audio.state === 'suspended'));
-    $('alarm').hidden = false;
-    beep(); clearInterval(beepTimer); beepTimer = setInterval(beep, 4000);
-  } else if (!on && !$('alarm').hidden) { $('alarm').hidden = true; clearInterval(beepTimer); beepTimer = null; }
-}
-$('alarmOk').onclick = function () {
-  var sess = st.snap && st.snap.session;
-  if (sess) ackedId = sess.id;
-  $('alarm').hidden = true; clearInterval(beepTimer); beepTimer = null;
-  api('/api/ack-alarm', 'POST').catch(function () {});
-};
-
-// ---- controls. Any {ok:false}: show it, re-poll and render from /api/state; never assume a state (I10). ----
-function command(path, body, msgId) {
-  unlockAudio();
-  return api(path, 'POST', body).then(function (r) {
-    if (r && r.ok === false && msgId) { $(msgId).textContent = r.error || 'Not now.'; $(msgId).hidden = false; }
-    return poll().then(function () { return r; });
-  }, function () { return poll(); });
-}
-$('startBtn').onclick = function () { command('/api/arm', null, 'readyMsg'); };
-$('cancelBtn').onclick = function () { command('/api/cancel', null, 'readyMsg'); };
-$('newBtn').onclick = function () { command('/api/new', null, 'csvMsg'); };
-$('stopBtn').onclick = function () { $('stopBtn').hidden = true; $('stopConfirm').hidden = false; };
-$('stopNo').onclick = function () { $('stopBtn').hidden = false; $('stopConfirm').hidden = true; };
-$('stopYes').onclick = function () { $('stopBtn').hidden = false; $('stopConfirm').hidden = true; command('/api/stop', null, null); };
-$('alarmPct').onchange = function () {
-  var v = parseInt($('alarmPct').value, 10);
-  command('/api/alarm-pct', { pct: v }, null).then(function (r) {
-    var sess = st.snap && st.snap.session;
-    if (r && r.ok === false && sess) $('alarmPct').value = sess.alarmPct;
-  });
-};
-$('csvBtn').onclick = function () {
-  api('/api/save-csv', 'POST').then(function (r) {
-    if (!r.ok) { $('csvMsg').textContent = r.error || 'Could not save to the Desktop.'; $('csvMsg').hidden = false; return; }
-    $('csvMsg').hidden = true;
-    setText('csvBtn', 'Saved to Desktop');
-    setTimeout(function () { setText('csvBtn', 'Save CSV'); }, 1500);
-  }, function () {});
-};
 
 // =====================================================================================================
 // Browser-only mode (developer fallback on file:// only; staff never get this file). Same rules, small:
@@ -808,17 +1109,35 @@ var Local = (function () {
     }, function () { failed = true; });
   });
 
+  // v15.1 contract: the one next step (battery → charge → unplug; no updates in browser-only mode) and the live ETA.
+  function nextStep() {
+    if (S) return null;
+    var c = checks();
+    if (!c.battery) return 'battery';
+    if (!c.pct96) return 'charge';
+    if (!c.unplugged) return 'unplug';
+    return null;
+  }
+  function liveEta() {
+    if (!S || S.status !== 'running') return null;
+    var pts = samples.filter(function (x) { return !x.ac && x.pct != null; }).map(function (x) { return { e: x.elapsedS, pct: x.pct }; });
+    return pts.length >= 5 ? L.etaToAlarm(pts, S.alarmPct) : null;
+  }
   function state(since) {
     flow();
     var p = pctNow(), segs = [];
     if (S) { segs = S.segments.slice(); if (S.open) segs.push({ startMs: S.open.startMs, endMs: null, startPct: S.open.startPct, endPct: null, startMwh: null, endMwh: null }); }
     return {
       rev: rev, version: 'browser only', nowMs: now(), checks: checks(), armed: armed, countdownEndsMs: cdEnds,
-      app: { version: null, release: 0, updatedFrom: null, updateNote: null },
+      nextStep: nextStep(),
+      app: { version: null, release: 0, updatedFrom: null, updateNote: null,
+        update: { phase: 'idle', version: null, bytes: null, total: null, percent: null, note: null } },
+      live: { avgW: null, etaToAlarmS: liveEta(), healthPct: null },
       unit: { maker: '', model: 'Browser only', serial: null, computerName: null }, batteries: [],
       now: { pct: p, mwh: null, fullMwh: null, rateMw: null, ac: bat ? bat.charging : null, charging: bat ? bat.charging && p < 100 : false, saver: false },
       session: S ? { id: S.id, status: S.status, startedMs: S.startedMs, alarmPct: S.alarmPct, alarmPctMax: 50,
-        alarm: !!S.alarm, alarmAck: !!S.alarmAck, segments: segs } : null,
+        alarm: !!S.alarm, alarmAck: !!S.alarmAck, segments: segs,
+        pausedSinceMs: S.status === 'paused' && S.pauses.length && !S.pauses[S.pauses.length - 1].toMs ? S.pauses[S.pauses.length - 1].fromMs : null } : null,
       samples: S ? samples.filter(function (x) { return x.rev > since; }) : [],
       events: S ? S.events.filter(function (e) { return e.rev > since; }) : [],
       result: S && S.status === 'done' ? summary() : null
@@ -840,6 +1159,7 @@ var Local = (function () {
           var v = body && body.pct;
           if (!(v >= 10 && v <= 50)) return { ok: false, error: 'Alarm must be 10 to 50%.' };
           alarmPct = v; if (active()) S.alarmPct = v; save(); return { ok: true };
+        case 'open-report': return { ok: false, error: 'Browser only: open it from your Downloads folder.' };
         case 'save-csv': if (!S) return { ok: false, error: 'No test yet.' }; download(baseName() + '.csv', csvText(), 'text/csv'); return { ok: true, file: baseName() + '.csv' };
       }
       return { ok: false, error: 'Unknown command.' };

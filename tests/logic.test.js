@@ -131,3 +131,89 @@ test('capRows: at most 20,000 DOM rows; the in-memory samples are never touched'
   assert.equal(L.capRows(100, 5, 50), 55);
   assert.equal(samples.length, 5);
 });
+
+// ---------------- v15.1 page helpers (plan v15.1 §6.2) ----------------
+const st151 = (o) => Object.assign({ checks: { battery: true, pct96: true, unplugged: false }, armed: true, countdownEndsMs: null, nowMs: 1000,
+  session: null, app: { version: '15.1.0', update: { phase: 'idle' } }, nextStep: 'unplug' }, o);
+
+test('v15.1 stageView: every nextStep × unplugged × armed/disarmed × countdown × band', () => {
+  const rows = [];
+  for (const ns of ['battery', 'charge', 'wait-update', 'unplug', null])
+    for (const unplugged of [false, true])
+      for (const armed of [true, false])
+        for (const cd of [null, 4000]) {
+          const v = L.stageView(st151({ nextStep: ns, checks: { battery: ns !== 'battery', pct96: ns !== 'charge' && ns !== 'battery', unplugged }, armed, countdownEndsMs: cd }));
+          const want = ns === 'battery' ? 'nobatt' : ns === 'charge' ? (unplugged ? 'low' : 'charge') : ns === 'wait-update' ? 'waitupd'
+            : ns === 'unplug' ? 'unplug' : cd != null ? 'countdown' : 'ready';
+          assert.equal(v.stage, want, JSON.stringify({ ns, unplugged, armed, cd }));
+          assert.equal(v.showStart, want === 'ready' && !armed, 'Start only after Cancel (G4), never armed-unwatched (M1): ' + JSON.stringify({ ns, armed, cd }));
+          rows.push(v.stage);
+        }
+  assert.equal(rows.length, 40);
+  assert.equal(L.stageView(st151({ nextStep: 'battery' })).now, 'b');
+  assert.equal(L.stageView(st151({ nextStep: 'charge' })).now, 'p');
+  assert.equal(L.stageView(st151({ nextStep: 'unplug' })).now, 'a');
+  for (const [status, stage] of [['running', 'logging'], ['paused', 'paused'], ['done', 'done']])
+    assert.equal(L.stageView(st151({ session: { status }, nextStep: 'unplug' })).stage, stage, 'bands win over nextStep');
+  // an exe without nextStep (older contract): the same order from the checks
+  assert.equal(L.stageView({ checks: { battery: false } }).stage, 'nobatt');
+  assert.equal(L.stageView({ checks: { battery: true, pct96: false, unplugged: true } }).stage, 'low');
+  assert.equal(L.stageView({ checks: { battery: true, pct96: true, unplugged: false } }).stage, 'unplug');
+  assert.equal(L.stageView({ checks: { battery: true, pct96: true, unplugged: true }, armed: true }).stage, 'ready');
+});
+
+test('v15.1 modalView: one modal per phase, checking only after 1 s (G1), none while a test is on screen', () => {
+  for (const ph of ['downloading', 'verifying', 'ready', 'failed'])
+    assert.equal(L.modalView(st151({ app: { update: { phase: ph } } })), ph, ph);
+  assert.equal(L.modalView(st151({ app: { update: { phase: 'idle' } } })), null);
+  assert.equal(L.modalView(st151({ app: { update: { phase: 'checking' } } }), { checkingForMs: 900 }), null, 'checking < 1 s: nothing');
+  assert.equal(L.modalView(st151({ app: { update: { phase: 'checking' } } }), { checkingForMs: 1200 }), 'checking');
+  for (const o of [{ session: { status: 'running' } }, { session: { status: 'paused' } }, { nextStep: null, countdownEndsMs: 5000 }])
+    for (const ph of ['checking', 'downloading', 'verifying', 'ready', 'failed'])
+      assert.equal(L.modalView(st151(Object.assign({ app: { update: { phase: ph } } }, o)), { checkingForMs: 5000 }), null, 'no modal during a test: ' + ph);
+  assert.equal(L.modalView(st151({ session: { status: 'done' }, app: { update: { phase: 'ready' } } })), 'ready', 'Done shows the modal');
+  assert.equal(L.modalView(st151({ app: { update: { phase: 'downloading' } } }), { hidden: { downloading: true } }), null, 'Hide');
+  assert.equal(L.modalView(st151({ app: { update: { phase: 'failed' } } }), { hidden: { failed: true } }), null, 'Later');
+  assert.equal(L.modalView(st151({ app: { update: { phase: 'ready' } } }), { hidden: { ready: true } }), null, 'OK');
+  assert.equal(L.modalView(st151({ app: { update: { phase: 'ready' } } }), { restarting: true }), 'restarting', 'after Restart now');
+});
+
+test('v15.1 Restart now shows only when idle', () => {
+  assert.equal(L.canRestart(st151({})), true, 'Ready');
+  assert.equal(L.canRestart(st151({ nextStep: null, countdownEndsMs: 5000 })), false, 'Countdown');
+  assert.equal(L.canRestart(st151({ session: { status: 'running' } })), false, 'Logging');
+  assert.equal(L.canRestart(st151({ session: { status: 'paused' } })), false, 'Paused');
+  assert.equal(L.canRestart(st151({ session: { status: 'done', alarm: true, alarmAck: false } })), false, 'Done, alarm not acknowledged');
+  assert.equal(L.canRestart(st151({ session: { status: 'done', alarm: true, alarmAck: true } })), true, 'Done, acknowledged');
+  assert.equal(L.canRestart(st151({ session: { status: 'done', alarm: false } })), true, 'Done, no alarm');
+});
+
+test('v15.1 chipView: "installs after this test", hidden download, "installs next time"', () => {
+  const run = { session: { status: 'running' } };
+  for (const ph of ['downloading', 'verifying', 'ready'])
+    assert.equal(L.chipView(st151(Object.assign({ app: { update: { phase: ph, version: '15.2.0' } } }, run))).text, 'Update v15.2.0 installs after this test');
+  assert.equal(L.chipView(st151(Object.assign({ app: { update: { phase: 'idle' } } }, run))), null);
+  assert.equal(L.chipView(st151({ app: { update: { phase: 'downloading', version: '15.2.0', percent: 62 } } }), { hidden: { downloading: true } }).text, 'Downloading v15.2.0 62%');
+  assert.equal(L.chipView(st151({ app: { update: { phase: 'downloading', version: '15.2.0', percent: 62 } } })), null, 'not hidden: the modal shows instead');
+  assert.equal(L.chipView(st151({ app: { update: { phase: 'ready', version: '15.2.0' } } }), { hidden: { ready: true } }).text, 'v15.2.0 installs next time');
+});
+
+test('v15.1 countdown words grow one count at a time (F4)', () => {
+  assert.equal(L.countdownWords(3000), '3...');
+  assert.equal(L.countdownWords(2500), '3...');
+  assert.equal(L.countdownWords(2000), '3... 2...');
+  assert.equal(L.countdownWords(1001), '3... 2...');
+  assert.equal(L.countdownWords(1000), '3... 2... 1...');
+  assert.equal(L.countdownWords(10), '3... 2... 1...');
+  assert.equal(L.countdownWords(-500), '3... 2... 1...');
+  assert.equal(L.countdownWords(null), '3...');
+  assert.deepEqual([3000, 2000, 1000].map(L.countdownDigit), [3, 2, 1]);
+});
+
+test('v15.1 heartbeat cadence: 5 s visible, 30 s hidden (inside the exe 15 s / 90 s windows)', () => {
+  assert.equal(L.heartbeatEvery(false), 5000);
+  assert.equal(L.heartbeatEvery(true), 30000);
+  assert.ok(L.heartbeatEvery(false) * 3 <= 15000, 'three visible heartbeats fit in the 15 s window');
+  assert.ok(L.heartbeatEvery(true) * 2 < 90000, 'a throttled hidden heartbeat (up to 60 s late) still lands inside 90 s');
+  assert.equal(L.fmtHMin(11400), '3 h 10 min'); assert.equal(L.fmtHMin(2520), '42 min'); assert.equal(L.fmtHMin(null), null);
+});

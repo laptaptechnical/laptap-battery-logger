@@ -3,7 +3,8 @@
 // AudioContext stubbed, fake clock. Two modes:
 //   - logger mode: the page is served at http://localhost:47600/ by a mocked exe (FakeExe answers /api/*);
 //   - browser-only mode: the page opened as file:// with the fake navigator.getBattery().
-// v15: there is no Start button in the normal flow. The exe runs the checklist + 3 s countdown, so logger-mode tests
+// v15.1: the screens follow prototype v15.1 (one stage per state; the % before a test is #bigpct, the stats tiles show
+// during a test). v15: there is no Start button in the normal flow. The exe runs the checklist + 3 s countdown, so logger-mode tests
 // start the mocked test with exe.post('/api/start') (the TESTHOOKS hook) and browser-only tests let the page's own
 // countdown run (unplugged at 100%). The v15 start flow itself is covered by Impl #2's test/v15-*.test.mjs.
 // Run (from the repo root):  node --test --test-concurrency=1 test/v14-page.test.mjs
@@ -156,20 +157,20 @@ const errs = (L) => assert.deepEqual(L.consoleErrors, [], 'page errors');
 
 // ---------------- bug 1: fake 95% ----------------
 test('bug 1a: no % shown or loggable while the Battery API has not answered; Start refused', () => withPage({ battery: 'pending', level: 0.42 }, async (L) => {
-  assert.doesNotMatch(await txt(L, '#pct'), /\d/, 'a % with no reading');
+  assert.doesNotMatch(await txt(L, '#bigpct'), /\d/, 'a % with no reading');
   await L.run(5000);
-  assert.ok(!(await L.page.getAttribute('#cPct', 'class') || '').includes('ok'), '96% check not met without a reading');
-  assert.ok(!(await L.page.isVisible('#bLog')), 'no test started');
+  assert.ok(!(await L.page.getAttribute('#cP', 'class') || '').includes('ok'), '96% check not met without a reading');
+  assert.ok(!(await L.page.isVisible('#sRun')), 'no test started');
   assert.doesNotMatch(await rows(L), /\d+/);
   errs(L);
 }));
 test('bug 1b: no % with no Battery API at all (browser-only)', () => withPage({ battery: 'absent' }, async (L) => {
   await L.run(5000);
-  assert.doesNotMatch(await txt(L, '#pct'), /\d/, 'a % with no reading');
+  assert.doesNotMatch(await txt(L, '#bigpct'), /\d/, 'a % with no reading');
   assert.doesNotMatch(await rows(L), /%|\d/);
 }));
 test('bug 1c: logger mode shows "—" when Windows gives no % (never a default)', () => withExe(new FakeExe({ pct: null }), {}, async (L) => {
-  assert.doesNotMatch(await txt(L, '#pct'), /\d/, 'a % with no reading');
+  assert.doesNotMatch(await txt(L, '#bigpct'), /\d/, 'a % with no reading');
 }));
 
 // ---------------- bug 2 / 7: gaps ----------------
@@ -216,14 +217,16 @@ test('bug 3: Stop asks in-page first; "Keep running" keeps the test; no Clear/Re
 }); });
 
 // ---------------- bug 4: files ----------------
-test('bug 4 (logger): Save CSV asks the exe to write it and says "Saved to Desktop"', () => {
+test('bug 4 (logger): Done names the Desktop files; Open report asks the exe; Save CSV only after a failed save', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
     exe.post('/api/start'); exe.unplug(); await L.step(5000);
     await L.click('#stopBtn'); await L.click('#stopYes'); await L.run(200);
-    await L.click('#csvBtn'); await L.run(50);
-    assert.ok(exe.calls.some(c => c.m === 'POST' && c.p === '/api/save-csv'));
-    assert.equal(await txt(L, '#csvBtn'), 'Saved to Desktop');
+    assert.equal(await txt(L, '#savedT'), 'Report saved to the Desktop');
+    assert.match(await txt(L, '#savedF'), /\.html · \.csv$/);
+    assert.ok(!(await L.page.isVisible('#csvBtn')), 'no Save CSV when the report and CSV were saved');
+    await L.click('#openBtn'); await L.run(50);
+    assert.ok(exe.calls.some(c => c.m === 'POST' && c.p === '/api/open-report'));
   });
 });
 test('bug 4 (browser-only): Stop downloads the report + CSV built from the embedded template', () => withPage({ level: 1 }, async (L) => {
@@ -269,11 +272,12 @@ test('bug 6b: alarm rings until OK, with no extra AudioContexts, then acks to th
   return withExe(exe, {}, async (L) => {
     exe.post('/api/start'); exe.unplug(); exe.drain(15); exe.end('alarm'); await L.step(6000);
     assert.ok(await L.page.isVisible('#alarm'));
-    assert.match(await txt(L, '#alarmT'), /Plug in the charger\. The test is done and the report is saved to the Desktop\./);
+    assert.equal(await txt(L, '#alarmT'), 'Plug in the charger');
+    assert.match(await txt(L, '#alarmS'), /^The test is done and the report is saved to the Desktop\. Beeping until you click OK\.$/);
     await L.run(12_000);
     let { audio } = await L.probe();
     assert.equal(audio.contexts, 1); assert.ok(audio.starts >= 6, `beeps ${audio.starts}`);
-    await L.click('#alarmOk'); await L.run(100);
+    await L.click('#aOk'); await L.run(100);
     assert.ok(!(await L.page.isVisible('#alarm')));
     assert.ok(exe.calls.some(c => c.p === '/api/ack-alarm'));
     const n = (await L.probe()).audio.starts; await L.run(10_000);
@@ -286,8 +290,9 @@ test('bug 8a: charger in mid-test pauses at once, unplug resumes (browser-only)'
   await L.run(4500); await L.run(30_000);
   await L.bat.set({ level: 0.97 }); await L.bat.set({ charging: true }); await L.run(5000);
   assert.match(await rows(L), /Charger plugged in · paused/);
-  assert.match(await txt(L, '#bigWord'), /^PAUSED · charger plugged in$/);
-  assert.equal(await txt(L, '#eta'), 'Unplug to continue');
+  assert.equal(await txt(L, '#bigWord'), 'PAUSED');
+  assert.equal(await txt(L, '#bandsub'), 'Charger plugged in. Unplug to continue.');
+  assert.equal(await txt(L, '#eta'), 'Charging, timer stopped');
   const el1 = await txt(L, '#elapsed'); await L.run(5 * MIN);
   await L.bat.set({ charging: false }); await L.run(5000);
   assert.match(await rows(L), /Unplugged · resumed/);
@@ -297,7 +302,7 @@ test('bug 8b (logger): a % change shows within one 5 s poll', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
     exe.now.pct = 79; await L.step(5000);
-    assert.equal(await txt(L, '#pct'), '79%');
+    assert.equal(await txt(L, '#bigpct'), '79%');
   });
 });
 
@@ -307,9 +312,9 @@ test('bug 9: Stop ends the test and shows the Result card with the Desktop paths
   return withExe(exe, {}, async (L) => {
     exe.post('/api/start'); exe.unplug(); await L.step(10 * MIN); exe.drain(90);
     await L.click('#stopBtn'); await L.click('#stopYes'); await L.run(200);
-    assert.match(await txt(L, '#doneSub'), /^Stopped early · report saved to the Desktop$/);
-    assert.match(await txt(L, '#resV'), /^\d+:\d\d$/);
-    assert.match(await txt(L, '#resS'), /100% → 90%/);
+    assert.match(await txt(L, '#range'), /^100% → 90% · Stopped early$/);
+    assert.equal(await txt(L, '#savedT'), 'Report saved to the Desktop');
+    assert.match(await txt(L, '#runtime'), /^(\d+ h )?\d+ min$/);
     assert.ok(await L.page.isVisible('#newBtn'), 'New test shown');
   });
 });
@@ -323,7 +328,7 @@ test('bug 10: rows are separate table rows; New test starts a clean table', () =
     await L.click('#stopBtn'); await L.click('#stopYes'); await L.run(200);
     await L.click('#newBtn');
     assert.equal(await L.page.locator('#rows tr').count(), 0);
-    assert.equal(await txt(L, '#resV'), '—');
+    assert.ok(!(await L.page.isVisible('#sDone')), 'the Done screen is gone');
   });
 });
 
@@ -334,7 +339,7 @@ test('bug 11: no Pause; each event row carries the reading at that moment', () =
     exe.post('/api/start'); exe.unplug(); await L.step(5000);
     exe.drain(70); exe.plug(); await L.step(5000);
     const row = await L.page.locator('#rows tr', { hasText: 'Charger plugged in' }).innerText();
-    assert.match(row, /\t70\t/);
+    assert.match(row, /\t70%\t/);
     assert.equal(await L.page.locator('button', { hasText: /^Pause/ }).count(), 0);
   });
 });
@@ -343,7 +348,7 @@ test('bug 11: no Pause; each event row carries the reading at that moment', () =
 test('bug 12 (browser-only): a getBattery() failure is shown, not "Checking…"', () => withPage({ battery: 'reject' }, async (L) => {
   await L.run(2000);
   assert.match(await txt(L, '#helper'), /Browser only · no health/);
-  assert.equal(await txt(L, '#cBatT'), 'No battery found', 'the checklist says why it cannot start');
+  assert.equal(await txt(L, '#step'), 'No battery found', 'the screen says why it cannot start');
   assert.doesNotMatch(await L.page.locator('body').innerText(), /Checking/);
 }));
 test('bug 12 (logger): 3 failed polls → "Logger stopped", buttons off, never browser-only', () => {
@@ -351,7 +356,7 @@ test('bug 12 (logger): 3 failed polls → "Logger stopped", buttons off, never b
   return withExe(exe, {}, async (L) => {
     exe.down = true; for (let i = 0; i < 4; i++) await L.step(5000);
     assert.match(await txt(L, '#helper'), /Logger stopped\. Open Laptap Battery Logger again\./);
-    for (const b of ['#startBtn', '#cancelBtn', '#stopBtn', '#csvBtn', '#newBtn']) assert.ok(await L.page.isDisabled(b), b);
+    for (const b of ['#startBtn', '#cancelBtn', '#stopBtn', '#csvBtn', '#newBtn', '#openBtn']) assert.ok(await L.page.isDisabled(b), b);
     const calls = exe.calls.length; await L.step(MIN);
     assert.equal(exe.calls.length, calls, 'stops polling once lost');
   });
@@ -368,7 +373,7 @@ test('bug 14: two batteries → health = ΣFull ÷ ΣDesign, both counted', () =
   { id: '1', maker: 'A', chemistry: 'LIon', designMwh: 23000, fullMwh: 20000, fullEndMwh: null, cycles: 120 },
   { id: '2', maker: 'B', chemistry: 'LIon', designMwh: 24000, fullMwh: 22000, fullEndMwh: null, cycles: 80 }] }), {}, async (L) => {
   assert.equal(await txt(L, '#health'), '89.4%'); // 42000 / 47000
-  assert.match(await txt(L, '#healthSub'), /42\.0 \/ 47\.0 Wh design/);
+  assert.equal(await txt(L, '#healthSub'), '42.0 of 47.0 Wh');
 }));
 
 // ---------------- bug 15 ----------------
@@ -454,12 +459,12 @@ test('token: read from #t=, removed from the URL, sent as X-Laptap-Token on ever
     assert.ok(exe.calls.some(c => c.p === '/api/state' && /since=\d+/.test(c.q)));
   });
 });
-test('below 96%: the checklist says "Charge to 96% or more (now 95%)" and nothing starts', () => {
+test('below 96%: "Plug in and charge to 96%" with the big 95% and nothing starts', () => {
   const exe = new FakeExe({ pct: 95, ac: false });
   return withExe(exe, {}, async (L) => {
     await L.step(5000);
-    assert.equal(await txt(L, '#cPctT'), 'Charge to 96% or more (now 95%)');
-    assert.ok(!(await L.page.isVisible('#bCount')) && !(await L.page.isVisible('#bLog')));
+    assert.equal(await txt(L, '#step'), 'Plug in and charge to 96%'); assert.equal(await txt(L, '#bigpct'), '95%');
+    assert.ok(!(await L.page.isVisible('#cdOv')) && !(await L.page.isVisible('#sRun')));
     assert.ok(!exe.calls.some(c => c.p === '/api/start'), 'the page never asks to start');
     assert.equal(exe.S, null);
   });
@@ -468,18 +473,19 @@ test('model name with <script> is escaped on the page', () => withExe(new FakeEx
   assert.equal(await L.page.locator('#unit img').count(), 0);
   assert.match(await txt(L, '#unit'), /<img src=x/);
 }));
-test('plugged in → checklist; unplugged → LOGGING "Measuring…", then "About h:mm to alarm" after 5+ samples', () => {
+test('plugged in → "Unplug the charger to start"; unplugged → LOGGING "Measuring…", then "h min" to alarm after 5+ samples', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
     exe.post('/api/start'); await L.step(5000);
-    assert.ok(await L.page.isVisible('#bReady'), 'still Ready while plugged in');
-    assert.equal(await txt(L, '#cAcT'), 'Charger unplugged');
+    assert.ok(await L.page.isVisible('#sPre'), 'still Ready while plugged in');
+    assert.equal(await txt(L, '#step'), 'Unplug the charger to start');
     exe.unplug(); await L.step(5000);
     assert.equal(await txt(L, '#eta'), 'Measuring…');
     assert.equal(await txt(L, '#bigWord'), 'LOGGING');
     for (let i = 1; i <= 6; i++) { exe.at += MIN; exe.drain(100 - i); }
     await L.step(5000);
-    assert.match(await txt(L, '#eta'), /^About \d+:\d\d to alarm$/);
+    assert.match(await txt(L, '#eta'), /^(\d+ h )?\d+ min$/);
+    assert.equal(await txt(L, '#etaSub'), 'estimate, gets better over time');
     errs(L);
   });
 });
@@ -494,14 +500,14 @@ test('contract: a finished test renders every stat and Result field (no blanks)'
     for (let i = 1; i <= 6; i++) { exe.at += 10 * MIN; exe.drain(98 - i * 3); }
     exe.gap(20); exe.drain(70); exe.plug(); exe.at += 5 * MIN; exe.unplug(); exe.drain(15); exe.end('alarm');
     await L.step(6000);
-    await L.click('#alarmOk'); await L.run(200);
+    await L.click('#aOk'); await L.run(200);
     const bad = /undefined|NaN|null|\[object/;
     const body = await L.page.locator('body').innerText();
     assert.doesNotMatch(body, bad, 'a raw value leaked onto the page');
-    for (const id of ['#pct', '#health', '#watts', '#pctSub', '#healthSub', '#wattsSub', '#unit', '#resV', '#resS', '#doneSub'])
+    for (const id of ['#pct', '#health', '#watts', '#pctSub', '#healthSub', '#wattsSub', '#unit', '#runtime', '#range', '#savedT', '#savedF', '#facts'])
       assert.ok((await txt(L, id)).trim().length > 0, `${id} is blank`);
-    assert.match(await txt(L, '#doneSub'), /^Ended at alarm · report saved to the Desktop$/);
-    assert.match(await txt(L, '#resS'), /% → 15%/);
+    assert.equal(await txt(L, '#savedT'), 'Report saved to the Desktop');
+    assert.match(await txt(L, '#range'), /% → 15% · alarm reached at \d\d:\d\d$/);
     assert.match(await txt(L, '#health'), /^(\d+\.\d%|100\.0%)$/);
     const ev = await L.page.locator('#rows tr td:nth-child(2)').allInnerTexts();
     ev.forEach((t, i) => assert.ok(t.trim().length > 0, `table row ${i} has no event label`));

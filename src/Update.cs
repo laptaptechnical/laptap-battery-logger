@@ -23,6 +23,27 @@ public class Manifest
     public byte[] Raw;
 }
 
+// v15.1 §2.1: one immutable snapshot of the updater's phase, published by the background thread and read by
+// /api/state as app.update. idle · checking · downloading · verifying · ready · failed. Nothing else in the updater changed.
+public class UpdateProgress
+{
+    public string Phase = "idle", Version, Note;
+    public long Bytes, Total;
+    public int Percent, Release;
+    public long PhaseSinceMs, DownloadStartMs;
+
+    public UpdateProgress Copy() { return (UpdateProgress)MemberwiseClone(); }
+
+    public Dictionary<string, object> ToDict()
+    {
+        Dictionary<string, object> d = new Dictionary<string, object>();
+        d["phase"] = Phase; d["version"] = Version; d["bytes"] = Phase == "downloading" ? (object)Bytes : null;
+        d["total"] = Phase == "downloading" ? (object)Total : null; d["percent"] = Phase == "downloading" ? (object)Percent : null;
+        d["note"] = Phase == "failed" ? Note : null;
+        return d;
+    }
+}
+
 public interface IChild { int Id { get; } bool HasExited { get; } void Kill(); }
 public interface ILauncher { IChild Start(string exe, string args); }
 
@@ -58,6 +79,30 @@ public static class Updater
 
     // The last note for the page's version tooltip (null = nothing to say).
     public static volatile string Note;
+    public static volatile UpdateProgress Progress = new UpdateProgress();
+    public static Action Changed = delegate { };   // the engine republishes /api/state
+
+    // One line per phase change in update.log (§2.4); percent updates are not logged.
+    public static void SetPhase(string phase, string version, string note)
+    {
+        UpdateProgress p = Progress.Copy();
+        bool changed = p.Phase != phase;
+        p.Phase = phase; p.Version = version ?? p.Version; p.Note = note;
+        p.PhaseSinceMs = Rules.NowMs();
+        if (phase == "downloading") { p.DownloadStartMs = p.PhaseSinceMs; p.Bytes = 0; p.Percent = 0; }
+        if (phase == "idle") { p.Version = null; p.Release = 0; }
+        Progress = p;
+        if (changed) Log("phase: " + phase + (version != null ? " " + version : "") + (note != null ? " (" + note + ")" : ""));
+        try { Changed(); } catch { }
+    }
+    public static void SetDownload(long bytes, long total)
+    {
+        UpdateProgress p = Progress.Copy();
+        p.Bytes = bytes; p.Total = total; p.Percent = total > 0 ? (int)Math.Min(100, bytes * 100 / total) : 0;
+        Progress = p;
+        try { Changed(); } catch { }
+    }
+    static void Fail(string version, string note) { Note = note; SetPhase("failed", version, note); }
     public static bool TlsSet;
 
     // ---------- manifest ----------
@@ -266,7 +311,9 @@ public static class Updater
     }
 
     // Streams to <path> with write-through, a size cap and a deadline. True = got exactly the bytes.
-    public static bool Download(string url, string path, long maxBytes, int deadlineMs, out string err)
+    public static bool Download(string url, string path, long maxBytes, int deadlineMs, out string err) { return Download(url, path, maxBytes, deadlineMs, null, out err); }
+
+    public static bool Download(string url, string path, long maxBytes, int deadlineMs, Action<long> progress, out string err)
     {
         string e2 = null; bool ok = false;
         HttpWebRequest[] holder = new HttpWebRequest[1];
@@ -283,12 +330,15 @@ public static class Updater
                 using (FileStream f = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 65536, FileOptions.WriteThrough))
                 {
                     byte[] buf = new byte[65536]; int n; long total = 0;
+                    Stopwatch tick = Stopwatch.StartNew();
                     while ((n = s.Read(buf, 0, buf.Length)) > 0)
                     {
                         total += n;
                         if (total > maxBytes) { e2 = "too big"; return; }
                         f.Write(buf, 0, n);
+                        if (progress != null && tick.ElapsedMilliseconds >= 250) { tick.Restart(); progress(total); }
                     }
+                    if (progress != null) progress(total);
                     f.Flush(true);
                     ok = true;
                 }
@@ -338,6 +388,15 @@ public static class Updater
         }
 
         PrepareTls();
+        SetPhase("checking", null, null);
+        string r0 = CheckAndStageNet(o, keys, part);
+        UpdateProgress now = Progress;
+        if (now.Phase == "checking") SetPhase("idle", null, null);   // nothing to do: straight back to idle
+        return r0;
+    }
+
+    static string CheckAndStageNet(CheckOptions o, List<byte[]> keys, string part)
+    {
         string latest = o.BaseUrl + "/releases/latest/download/";
         GetResult man = Get(latest + "update.json", 64 * 1024, UpdateConfig.CheckDeadlineMs);
         if (man.Status == 404) { Log("no releases yet (404)"); return "no-update"; }   // M4: quiet
@@ -358,7 +417,7 @@ public static class Updater
         if (File.Exists(staged) && File.Exists(staged + ".json"))
         {
             string e3; Manifest sm = Parse(File.ReadAllBytes(staged + ".json"), out e3);
-            if (sm != null && sm.Release == m.Release && FileMatches(staged, m)) { Log("already staged " + m.Version); return "staged"; }
+            if (sm != null && sm.Release == m.Release && FileMatches(staged, m)) { Log("already staged " + m.Version); SetReady(m); return "staged"; }
         }
 
         // Writable? Creating the .part is the test (read-only stick, Program Files).
@@ -367,11 +426,23 @@ public static class Updater
 
         string exeUrl = o.BaseUrl + "/releases/download/" + m.Tag + "/" + m.Asset;
         string derr;
-        if (!Download(exeUrl, part, m.Size, UpdateConfig.DownloadDeadlineMs, out derr) || !FileMatches(part, m))
+        SetPhase("downloading", m.Version, null);
+        SetDownload(0, m.Size);
+        long size = m.Size;
+        bool got = Download(exeUrl, part, m.Size, UpdateConfig.DownloadDeadlineMs, delegate(long b) { SetDownload(b, size); }, out derr);
+        if (!got)
         {
             try { File.Delete(part); } catch { }
-            SetNote("Update check failed (no internet?)");
-            Log("download failed: " + (derr ?? "hash or size mismatch"));
+            Log("download failed: " + derr);
+            Fail(m.Version, "Update check failed (no internet?)");
+            return "download-failed";
+        }
+        SetPhase("verifying", m.Version, null);
+        if (!FileMatches(part, m))
+        {
+            try { File.Delete(part); } catch { }
+            Log("download failed: hash or size mismatch");
+            Fail(m.Version, "Update refused: the download didn't match");
             return "download-failed";
         }
         try
@@ -381,9 +452,16 @@ public static class Updater
             File.WriteAllBytes(staged + ".json", man.Body);
             File.WriteAllBytes(staged + ".json.sig", sig.Body);
         }
-        catch (Exception ex) { try { File.Delete(part); } catch { } Log("stage failed: " + ex.Message); return "stage-failed"; }
+        catch (Exception ex) { try { File.Delete(part); } catch { } Log("stage failed: " + ex.Message); Fail(m.Version, "Folder is read-only"); return "stage-failed"; }
         Log("staged " + m.Version + " (release " + m.Release + ")");
+        SetReady(m);
         return "staged";
+    }
+
+    static void SetReady(Manifest m)
+    {
+        SetPhase("ready", m.Version, null);
+        UpdateProgress p = Progress.Copy(); p.Release = m.Release; Progress = p;
     }
 
     static readonly DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);

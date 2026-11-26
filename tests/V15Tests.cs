@@ -277,7 +277,7 @@ static class V15Tests
     }
 
     // ---------------- skip rules, 404, deadline, TLS (plan §5.4 A) ----------------
-    class MiniServer
+    internal class MiniServer
     {
         public HttpListener L; public int Port; public int Hits; public Dictionary<string, byte[]> Files = new Dictionary<string, byte[]>(); public bool Down404;
         public MiniServer()
@@ -307,7 +307,7 @@ static class V15Tests
         public void Stop() { try { L.Close(); } catch { } }
     }
 
-    static Updater.CheckOptions Opts(string exe, string baseUrl)
+    internal static Updater.CheckOptions Opts(string exe, string baseUrl)
     {
         Updater.CheckOptions o = new Updater.CheckOptions();
         o.ExePath = exe; o.OwnRelease = 1; o.BuildDateUtcMs = Rules.NowMs() - 86400000L; o.BaseUrl = baseUrl;
