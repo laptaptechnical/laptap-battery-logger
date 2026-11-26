@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet type='text/xsl' href='C:\battery-stylesheet.xsl'?>
+<BatteryReport xmlns="http://schemas.microsoft.com/battery/2012">
+  <ReportInformation><ReportVersion>1.1</ReportVersion></ReportInformation>
+  <Batteries>
+    <Battery><Id>BAT</Id><Manufacturer>Notebook</Manufacturer><SerialNumber>0001</SerialNumber><ManufactureDate></ManufactureDate><Chemistry>LION</Chemistry><LongTerm>1</LongTerm><RelativeCapacity>0</RelativeCapacity><DesignCapacity>51528</DesignCapacity><FullChargeCapacity>47378</FullChargeCapacity><CycleCount>0</CycleCount></Battery>
+  </Batteries>
+  <RuntimeEstimates><DesignCapacity><Capacity>51528</Capacity></DesignCapacity></RuntimeEstimates>
+</BatteryReport>

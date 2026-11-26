@@ -1,0 +1,8 @@
+# Build output: the exe is never committed
+dist/
+dist-next/
+old-builds/
+tests/bin/
+# Test output (screenshots, idle measurements)
+test/results/
+node_modules/

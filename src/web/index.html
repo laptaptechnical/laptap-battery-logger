@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battery Logger v14</title>
+<style>
+/* Finale-look desktop tool: header bar, one stats row, chart, result card, event table, actions. Fits 1024×600. */
+:root{
+  --bg:#ffffff; --panel:#f7f9fb; --line:#dfe3e8; --fg:#16191d; --muted:#6b737c;
+  --accent:#0070d2; --accent-fg:#ffffff; --good:#2e844a; --warn:#b86e00; --bad:#c23934; --gap:#eef1f4;
+  --font:"Helvetica Neue",Helvetica,Arial,sans-serif; --mono:Consolas,"Cascadia Mono",monospace;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#16191d; --panel:#1d2126; --line:#30363d; --fg:#e6e9ed; --muted:#9aa3ad;
+  --accent:#3d9bf0; --accent-fg:#0b1016; --good:#5cc27e; --warn:#e3a33a; --bad:#f0716b; --gap:#242a31; color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.4 var(--font);font-variant-numeric:tabular-nums}
+.wrap{max-width:1100px;margin:0 auto;padding:12px 16px 24px;display:flex;flex-direction:column;gap:12px}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:10px}
+.tile{width:30px;height:30px;border-radius:4px;background:var(--accent);display:grid;place-items:center}
+.tile svg{width:18px;height:18px}
+h1{font-size:16px;font-weight:600;margin:0}
+.unit{color:var(--muted)}
+.spacer{flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--good)}
+.dot.off{background:var(--bad)}
+.pill.off{color:var(--bad)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.stat{background:var(--bg);padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.stat .k{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.stat .v{font-size:22px;font-weight:600;display:flex;align-items:center;gap:8px}
+.stat .s{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.batt{width:34px;height:16px;border:1.5px solid var(--fg);border-radius:3px;padding:1.5px;position:relative;flex:none}
+.batt::after{content:"";position:absolute;right:-4px;top:4px;width:2px;height:5px;background:var(--fg);border-radius:0 1px 1px 0}
+.batt i{display:block;height:100%;background:var(--accent);border-radius:1px}
+.batt.low i{background:var(--bad)} .batt.chg i{background:var(--good)}
+.chart{border:1px solid var(--line);border-radius:4px;padding:8px 8px 4px}
+.chart svg{width:100%;height:170px;display:block}
+.chart .legend{display:flex;gap:14px;font-size:11px;color:var(--muted);padding:0 4px 4px}
+.sw{display:inline-block;width:10px;height:2px;vertical-align:middle;margin-right:4px}
+.tablebox{border:1px solid var(--line);border-radius:4px;overflow:auto;max-height:220px}
+table{border-collapse:collapse;width:100%;min-width:520px}
+th,td{height:22px;padding:0 10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
+th{position:sticky;top:0;background:var(--panel);font-weight:600;font-size:12px;color:var(--muted)}
+td.n,th.n{text-align:right}
+tr.ev td{font-weight:600}
+tr.gap td{background:var(--gap);color:var(--muted)}
+tr.alarm td{color:var(--bad);font-weight:600}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button{font:inherit;height:28px;padding:0 14px;border-radius:4px;border:1px solid var(--line);background:var(--bg);color:var(--accent);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+label.f{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+input[type=number]{font:inherit;width:56px;height:28px;padding:0 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
+.confirm{display:inline-flex;gap:8px;align-items:center;color:var(--bad)}
+.report{border:1px solid var(--line);border-radius:4px}
+.report h2{font-size:14px;margin:0;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.kv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0}
+.kv div{padding:8px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;min-width:0}
+.kv div span:first-child{color:var(--muted)}
+/* Result shown: compact so the action bar stays on screen at 1024×600 */
+body.done .chart svg{height:110px} body.done .tablebox{max-height:112px} body.done .kv div{padding:5px 12px} body.done .report h2{padding:6px 12px} body.done .files{padding:5px 12px}
+body.done .bar{position:sticky;bottom:0;z-index:5;background:var(--bg);border-top:1px solid var(--line);padding:8px 0}
+.files.bad{color:var(--bad)}
+.files{padding:8px 12px;color:var(--muted);font-family:var(--mono);font-size:12px;word-break:break-all}
+.ov{position:fixed;inset:0;background:rgba(10,14,20,.45);display:grid;place-items:center;padding:16px;z-index:20}
+.box{background:var(--bg);border:1px solid var(--line);border-top:3px solid var(--bad);border-radius:6px;padding:18px 20px;width:min(360px,100%);display:flex;flex-direction:column;gap:10px}
+.box b{font-size:28px;color:var(--bad)}
+@media (max-width:720px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.kv{grid-template-columns:minmax(0,1fr)}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/><path d="M11 9l-2 3h4l-2 3"/></svg></div>
+    <h1>Battery Logger</h1>
+    <span class="unit" id="unit"></span>
+    <span class="spacer"></span>
+    <span class="pill" id="helper"><span class="dot"></span>Windows data</span>
+  </header>
+
+  <section class="stats" aria-label="Battery now">
+    <div class="stat"><span class="k">Charge</span><span class="v"><span class="batt" id="battIcon"><i id="battFill" style="width:0%"></i></span><span id="pct">--%</span></span><span class="s" id="pctSub">n/a</span></div>
+    <div class="stat"><span class="k">Health</span><span class="v" id="health">n/a</span><span class="s" id="healthSub">n/a</span></div>
+    <div class="stat"><span class="k">Power</span><span class="v" id="watts">n/a</span><span class="s" id="wattsSub">n/a</span></div>
+    <div class="stat"><span class="k">Elapsed</span><span class="v" id="elapsed">0:00:00</span><span class="s" id="eta">Ready</span></div>
+  </section>
+
+  <section class="chart" aria-label="Charge over time">
+    <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>Charge %</span><span><i class="sw" style="background:var(--warn)"></i>Watts</span><span><i class="sw" style="background:var(--gap);height:8px"></i>Gap</span></div>
+    <svg id="chart" viewBox="0 0 1000 170" preserveAspectRatio="none" role="img" aria-label="Charge and power over time"></svg>
+  </section>
+
+  <section id="reportBox" class="report" hidden></section>
+
+  <section class="tablebox" aria-label="Log">
+    <table><thead><tr><th>Time</th><th>Event</th><th class="n">%</th><th class="n">Wh</th><th class="n">W</th><th class="n">Elapsed</th></tr></thead><tbody id="rows"></tbody></table>
+  </section>
+
+  <div class="bar">
+    <button class="primary" id="startBtn">Start</button>
+    <span class="confirm" id="startMsg" hidden>Charge to at least 96% first.</span>
+    <button class="danger" id="stopBtn" disabled>Stop</button>
+    <span class="confirm" id="stopConfirm" hidden>End the test now? <button class="danger" id="stopYes">End test</button><button id="stopNo">Keep running</button></span>
+    <span class="spacer"></span>
+    <label class="f" for="alarmPct">Alarm at <input type="number" id="alarmPct" min="10" max="50" value="15">%</label>
+    <span class="confirm" id="csvMsg" hidden></span>
+    <button id="exportBtn">Save CSV</button>
+  </div>
+</div>
+
+<div class="ov" id="alarm" hidden role="alertdialog" aria-labelledby="alarmT">
+  <div class="box">
+    <b id="alarmPctV">15%</b>
+    <div id="alarmT">Plug in the charger. The test is done and the report is saved to the Desktop.</div>
+    <button class="primary" id="alarmOk">OK</button>
+  </div>
+</div>
+
+<!-- The one report template. The exe fills it (Report.cs) and so does browser-only mode (fillReport). -->
+<template id="report"><!-- Slots (api-contract.md; plain = escaped, *Html = raw): unitModel, unitSerial, computerName, date, startTime, endTime,
+reason, startEnd, runtime, estFull, estFullEnergy, avgW, minW, maxW, healthPct, batteryRowsHtml, gapsPauses, saver,
+brightness, plan, windows, alarmNote, chartSvgHtml, eventRowsHtml, eventsMore, version --><meta charset="utf-8"><title>Battery {{unitSerial}} {{date}}</title>
+<style>
+body{margin:0;font:12px/1.4 "Helvetica Neue",Helvetica,Arial,sans-serif;color:#16191d;background:#fff;font-variant-numeric:tabular-nums}
+.r{max-width:760px;margin:0 auto;padding:16px}
+.h{display:flex;align-items:center;gap:10px;border-bottom:1px solid #dfe3e8;padding-bottom:8px;flex-wrap:wrap}
+.h b{font-size:16px}.h span{color:#6b737c}.res{margin-left:auto;font-weight:600;color:#0070d2}
+.kv{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid #dfe3e8;border-radius:4px;margin:10px 0}
+.kv div{padding:5px 10px;border-bottom:1px solid #dfe3e8;display:flex;justify-content:space-between;gap:8px}
+.kv div span:first-child{color:#6b737c}
+.note{color:#c23934;font-weight:600}
+table{border-collapse:collapse;width:100%;margin:8px 0}
+th,td{height:20px;padding:0 8px;text-align:left;border-bottom:1px solid #dfe3e8;white-space:nowrap}
+th{background:#f7f9fb;color:#6b737c;font-weight:600}td.n,th.n{text-align:right}
+tr.gap td{background:#eef1f4;color:#6b737c}tr.alarm td{color:#c23934;font-weight:600}tr.ev td{font-weight:600}
+.chart{border:1px solid #dfe3e8;border-radius:4px;padding:6px}.more,.f{color:#6b737c}.f{margin-top:10px;font-size:11px}
+@media print{@page{size:A4;margin:10mm}.r{padding:0}}
+</style>
+<div class="r">
+<div class="h"><b>Battery Logger</b><span>{{unitModel}} · {{unitSerial}} · {{computerName}}</span><span class="res">{{reason}}</span></div>
+<div class="note">{{alarmNote}}</div>
+<div class="kv">
+<div><span>Date</span><span>{{date}} {{startTime}}–{{endTime}}</span></div>
+<div><span>Runtime</span><span>{{runtime}} ({{startEnd}})</span></div>
+<div><span>est. 100→0%</span><span>{{estFull}}</span></div>
+<div><span>Energy method</span><span>{{estFullEnergy}}</span></div>
+<div><span>Average draw</span><span>{{avgW}}</span></div>
+<div><span>Min / max</span><span>{{minW}} / {{maxW}}</span></div>
+<div><span>Health</span><span>{{healthPct}}</span></div>
+<div><span>Gaps / pauses</span><span>{{gapsPauses}}</span></div>
+<div><span>Battery saver</span><span>{{saver}}</span></div>
+<div><span>Brightness</span><span>{{brightness}}</span></div>
+<div><span>Power plan</span><span>{{plan}}</span></div>
+<div><span>Windows</span><span>{{windows}}</span></div>
+</div>
+<table class="bt"><thead><tr><th>Battery</th><th>Maker</th><th>Chemistry</th><th class="n">Design Wh</th><th class="n">Full Wh</th><th class="n">Cycles</th><th class="n">Health</th></tr></thead>{{batteryRowsHtml}}</table>
+<div class="chart">{{chartSvgHtml}}</div>
+<table class="ev"><thead><tr><th>Time</th><th>Event</th><th class="n">%</th><th class="n">Wh</th><th class="n">W</th><th class="n">Elapsed</th></tr></thead>{{eventRowsHtml}}</table>
+<div class="more">{{eventsMore}}</div>
+<div class="f">Battery Logger v14 · Windows data · {{version}}</div>
+</div></template>
+
+<script src="logic.js"></script>
+<script>
+'use strict';
+(function () {
+var L = window.LaptapLogic;
+var $ = function (id) { return document.getElementById(id); };
+var FILE = location.protocol === 'file:';
+
+// ---- token: read from #t=, keep in memory, remove from the address bar ----
+var token = (location.hash.match(/[#&]t=([0-9a-f]+)/) || [])[1] || '';
+try {
+  if (token) sessionStorage.setItem('laptapBatteryToken', token);   // this window only; gone when it closes
+  else if (!FILE) token = sessionStorage.getItem('laptapBatteryToken') || '';
+} catch (e) {}
+if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+
+var st = { rev: 0, samples: [], events: [], snap: null, lastListed: null, sessionId: null, chartKey: null };
+var fails = 0, lost = false, lastHb = 0, pollTimer = null, dismissed = null, alarmPctIdle = 15;
+var audio = null, beepTimer = null, ackedId = null;
+
+function api(path, method, body) {
+  if (FILE) return Local.request(path, method || 'GET', body);
+  var h = { 'X-Laptap-Token': token };
+  if (body) h['Content-Type'] = 'application/json';
+  return fetch(path, { method: method || 'GET', headers: h, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' })
+    .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+}
+
+// ---- polling: 5 s visible, 30 s hidden; heartbeat every 60 s rides along. No 1-second timer. ----
+function poll() {
+  clearTimeout(pollTimer);
+  var p = Promise.resolve();
+  if (Date.now() - lastHb >= 60000) { lastHb = Date.now(); p = api('/api/heartbeat', 'POST').catch(function () {}); }
+  return p.then(function () { return api('/api/state?since=' + st.rev); })
+    .then(function (s) { fails = 0; apply(s); }, function () { if (++fails >= 3) loggerLost(); })
+    .then(function () { if (!lost) pollTimer = setTimeout(poll, document.hidden ? 30000 : 5000); });
+}
+document.addEventListener('visibilitychange', function () { if (!document.hidden && !lost) poll(); });
+
+// ---- compare-before-write: nothing changed → nothing written to the DOM (F1) ----
+function setText(id, t) { var el = $(id); if (el.textContent !== t) el.textContent = t; }
+function setProp(id, k, v) { var el = $(id); if (el[k] !== v) el[k] = v; }
+function setStyle(id, k, v) { var el = $(id); if (el.style[k] !== v) el.style[k] = v; }
+function setHtml(id, h) { var el = $(id); if (el.__h !== h) { el.__h = h; el.innerHTML = h; } }
+
+function loggerLost() {
+  lost = true;
+  setProp('helper', 'className', 'pill off');
+  setHtml('helper', '<span class="dot off"></span>Logger stopped. Open Laptap Battery Logger again.');
+  ['startBtn', 'stopBtn', 'exportBtn', 'stopYes', 'alarmPct'].forEach(function (id) { setProp(id, 'disabled', true); });
+}
+
+// ---- formatting ----
+function wh(m) { return m == null ? '' : (m / 1000).toFixed(1); }
+function w(mw) { return mw == null ? '' : (mw / 1000).toFixed(1); }
+function pad(n) { return (n < 10 ? '0' : '') + n; }
+function clock(ms) { var d = new Date(ms); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
+function pct(p) { return p == null ? 'n/a' : p + '%'; }
+
+// §7 table wording, made from the contract's event type + note.
+function eventLabel(e) {
+  switch (e.type) {
+    case 'start': return 'Test started';
+    case 'waiting_unplug': return 'Waiting for unplug';
+    case 'unplugged': return 'Unplugged';
+    case 'charger_in': return 'Charger plugged in · paused';
+    case 'charger_out': return 'Unplugged · resumed';
+    case 'gap': return 'Gap ' + L.fmtHm(((e.toMs || e.ms) - (e.fromMs || e.ms)) / 1000) + ' · ' + (e.note && e.note !== 'unknown' ? 'laptop ' + e.note : 'unknown');
+    case 'saver_on': return 'Battery saver on';
+    case 'saver_off': return 'Battery saver off';
+    case 'alarm': return 'Alarm at ' + pct(e.pct);
+    case 'stop': return 'Stopped by tech';
+    case 'hibernated': return L.endReason('hibernated', e.pct, e.elapsedS);
+    case 'recovered': return L.endReason(e.note || 'logger_stopped', e.pct, e.elapsedS);
+    case 'report_saved': return 'Report saved';
+    case 'report_failed': return 'Report not saved to the Desktop';
+    default: return e.type;
+  }
+}
+function eventKind(e) { return e.type === 'gap' ? 'gap' : (e.type === 'alarm' || e.type === 'report_failed' ? 'alarm' : 'ev'); }
+
+function activeSession(s) { return s && s.session && s.session.id !== dismissed ? s.session : null; }
+
+// Counted seconds: Σ segments (an open segment runs to now).
+function countedS(sess) {
+  var t = 0, now = Date.now();
+  (sess.segments || []).forEach(function (g) { t += ((g.endMs == null ? now : g.endMs) - g.startMs) / 1000; });
+  return Math.max(0, t);
+}
+function gapsOf(events) { return events.filter(function (e) { return e.type === 'gap' && e.fromMs != null; }).map(function (e) { return { fromMs: e.fromMs, toMs: e.toMs }; }); }
+function pausesOf(events) {
+  var out = [], cur = null;
+  events.forEach(function (e) {
+    if (e.type === 'charger_in') cur = { fromMs: e.ms, toMs: null };
+    else if (cur && (e.type === 'charger_out' || e.type === 'stop' || e.type === 'alarm')) { cur.toMs = e.ms; out.push(cur); cur = null; }
+  });
+  if (cur) out.push(cur);
+  return out;
+}
+
+function apply(s) {
+  if (st.snap && s.rev < st.rev) { st.rev = 0; st.samples = []; st.events = []; setHtml('rows', ''); st.lastListed = null; }
+  var sess = s.session;
+  if (sess && sess.id !== st.sessionId) { st.sessionId = sess.id; st.samples = []; st.events = []; setHtml('rows', ''); st.lastListed = null; }
+  var newRows = [];
+  (s.samples || []).forEach(function (x) {
+    st.samples.push(x);
+    if (st.lastListed == null || x.ms - st.lastListed >= 600000) { st.lastListed = x.ms; newRows.push({ rev: x.rev, ms: x.ms, label: 'Reading', kind: '', pct: x.pct, mwh: x.mwh, rateMw: x.rateMw, elapsedS: x.elapsedS }); }
+  });
+  (s.events || []).forEach(function (e) {
+    st.events.push(e);
+    newRows.push({ rev: e.rev, ms: e.ms, label: eventLabel(e), kind: eventKind(e), pct: e.pct, mwh: e.mwh, rateMw: e.rateMw, elapsedS: e.elapsedS });
+  });
+  newRows.sort(function (a, b) { return a.rev - b.rev; });
+  st.rev = Math.max(st.rev, s.rev || 0);
+  st.snap = s;
+  if (activeSession(s)) addRows(newRows);
+  render(s);
+}
+
+function addRows(list) {
+  if (!list.length) return;
+  var html = '';
+  list.forEach(function (r) {
+    html = '<tr class="' + (r.kind || '') + '"><td>' + clock(r.ms) + '</td><td>' + L.escapeHtml(r.label) + '</td><td class="n">' +
+      (r.pct == null ? '' : r.pct) + '</td><td class="n">' + wh(r.mwh) + '</td><td class="n">' + w(r.rateMw) + '</td><td class="n">' +
+      L.fmtElapsed(r.elapsedS) + '</td></tr>' + html;
+  });
+  var el = $('rows'); el.__h = null;
+  el.insertAdjacentHTML('afterbegin', html);
+}
+
+// Live health = logic.health over Σ batteries (contract); shown capped at 100.
+function healthOf(bats) {
+  var full = 0, design = 0, ok = bats.length > 0;
+  bats.forEach(function (b) { if (b.fullMwh == null || b.designMwh == null) ok = false; else { full += b.fullMwh; design += b.designMwh; } });
+  if (!ok) return { shown: null, full: null, design: null };
+  return { shown: L.health(full, design).shown, full: full, design: design };
+}
+function cyclesText(bats) {   // F2: one value per battery, "n/a" only where a battery reports none
+  if (!bats.length) return 'n/a';
+  return bats.map(function (b) { return b.cycles == null ? 'n/a' : String(b.cycles); }).join(' / ');
+}
+
+function render(s) {
+  var n = s.now || {}, sess = activeSession(s), bats = s.batteries || [];
+  var u = s.unit || {};
+  setText('unit', [u.model || u.maker || '', u.serial || ''].filter(Boolean).join(' · '));
+  if (!lost) {
+    setProp('helper', 'className', FILE ? 'pill off' : 'pill');
+    setHtml('helper', FILE ? '<span class="dot off"></span>Browser only · no health' : '<span class="dot"></span>Windows data');
+  }
+  var alarmPct = sess ? sess.alarmPct : alarmPctIdle;
+  if (document.activeElement !== $('alarmPct') && $('alarmPct').value !== String(alarmPct)) $('alarmPct').value = alarmPct;
+
+  // Charge
+  setText('pct', n.pct == null ? '--%' : n.pct + '%');
+  setStyle('battFill', 'width', (n.pct || 0) + '%');
+  setProp('battIcon', 'className', 'batt' + (n.ac ? ' chg' : (n.pct != null && n.pct <= alarmPct ? ' low' : '')));
+  setText('pctSub', n.mwh != null && n.fullMwh != null ? wh(n.mwh) + ' of ' + wh(n.fullMwh) + ' Wh' : (n.mwh != null ? wh(n.mwh) + ' Wh' : 'n/a'));
+  // Health (number only, D13)
+  var h = healthOf(bats);
+  setText('health', h.shown == null ? 'n/a' : h.shown.toFixed(1) + '%');
+  setText('healthSub', h.full != null ? wh(h.full) + ' / ' + wh(h.design) + ' Wh design · cycles ' + cyclesText(bats) : 'n/a');
+  // Power (bug 13)
+  setText('watts', n.ac ? 'On AC' : (n.rateMw != null ? w(n.rateMw) + ' W' : 'n/a'));
+  setText('wattsSub', n.pct == null && n.ac == null ? 'n/a' : L.powerState(!!n.ac, !!n.charging, n.pct));
+  // Elapsed + ETA
+  var el = 0, eta = 'Ready';
+  if (sess) {
+    el = countedS(sess);
+    if (sess.status === 'waiting') eta = 'Waiting for unplug';
+    else if (sess.status === 'paused') eta = 'Paused · charger connected';
+    else if (sess.status === 'running') {
+      var pts = st.samples.filter(function (x) { return !x.ac && x.pct != null; }).map(function (x) { return { e: x.elapsedS, pct: x.pct }; });
+      var left = pts.length >= 5 ? L.etaToAlarm(pts, alarmPct) : null;
+      eta = left == null ? 'Measuring…' : 'About ' + L.fmtHm(left) + ' to alarm';
+    } else eta = s.result ? s.result.reason : '';
+  }
+  setText('elapsed', L.fmtElapsed(el));
+  setText('eta', eta);
+
+  var running = !!(sess && sess.status !== 'done');
+  if (!lost) { setProp('startBtn', 'disabled', running); setProp('stopBtn', 'disabled', !running); }
+  setText('startBtn', sess && sess.status === 'done' ? 'New test' : 'Start');
+  if (!running) { setProp('stopConfirm', 'hidden', true); setProp('stopBtn', 'hidden', false); }
+
+  var key = (sess ? sess.id + ':' + sess.status + ':' + (sess.segments || []).length : '-') + ':' + st.samples.length + ':' + st.events.length + ':' + alarmPct;
+  if (key !== st.chartKey) { st.chartKey = key; drawChart(sess, alarmPct); }
+  renderResult(sess ? s.result : null);
+  renderAlarm(s, sess);
+}
+
+// ---- chart: x = wall time since the clock started, so gaps and pauses show as real spans ----
+var VARS = { line: 'var(--line)', muted: 'var(--muted)', warn: 'var(--warn)', gap: 'var(--gap)', bad: 'var(--bad)', accent: 'var(--accent)' };
+var HEX = { line: '#dfe3e8', muted: '#6b737c', warn: '#b86e00', gap: '#eef1f4', bad: '#c23934', accent: '#0070d2' };
+// view = { t0, gaps: [{fromMs,toMs}], pauses: [{fromMs,toMs}] }
+function chartSvg(samples, view, alarmPct, c, W, H) {
+  var Lm = 34, R = 34, T = 8, B = 20, t0 = view ? view.t0 : 0;
+  var d = samples.filter(function (x) { return x.pct != null && x.ms >= t0; });
+  var tmax = Math.max(3600 * 4, d.length ? (d[d.length - 1].ms - t0) / 1000 : 0);
+  var x = function (t) { return Lm + Math.max(0, t) / tmax * (W - Lm - R); }, y = function (p) { return T + (1 - p / 100) * (H - T - B); };
+  var maxW = 20; d.forEach(function (r) { if (!r.ac && r.rateMw != null && r.rateMw / 1000 > maxW) maxW = Math.ceil(r.rateMw / 10000) * 10; });
+  var yw = function (v) { return T + (1 - v / maxW) * (H - T - B); };
+  var g = '<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="' + c.muted + '" stroke-width="2"/></pattern></defs>';
+  [0, 25, 50, 75, 100].forEach(function (p) { g += '<line x1="' + Lm + '" x2="' + (W - R) + '" y1="' + y(p) + '" y2="' + y(p) + '" stroke="' + c.line + '" stroke-width="1"/><text x="' + (Lm - 6) + '" y="' + (y(p) + 4) + '" font-size="10" text-anchor="end" fill="' + c.muted + '">' + p + '</text>'; });
+  [0, maxW / 2, maxW].forEach(function (v) { g += '<text x="' + (W - R + 6) + '" y="' + (yw(v) + 4) + '" font-size="10" fill="' + c.warn + '">' + v + 'W</text>'; });
+  for (var hh = 0; hh <= tmax / 3600; hh += tmax > 43200 ? 2 : 1) g += '<text x="' + x(hh * 3600) + '" y="' + (H - 5) + '" font-size="10" text-anchor="middle" fill="' + c.muted + '">' + hh + 'h</text>';
+  if (view) {
+    view.gaps.forEach(function (gp) { g += '<rect x="' + x((gp.fromMs - t0) / 1000) + '" y="' + T + '" width="' + Math.max(2, x((gp.toMs - t0) / 1000) - x((gp.fromMs - t0) / 1000)) + '" height="' + (H - T - B) + '" fill="' + c.gap + '"/>'; });
+    view.pauses.forEach(function (pp) { var to = pp.toMs || (d.length ? d[d.length - 1].ms : pp.fromMs); g += '<rect x="' + x((pp.fromMs - t0) / 1000) + '" y="' + T + '" width="' + Math.max(2, x((to - t0) / 1000) - x((pp.fromMs - t0) / 1000)) + '" height="' + (H - T - B) + '" fill="url(#hatch)" opacity=".5"/>'; });
+  }
+  g += '<line x1="' + Lm + '" x2="' + (W - R) + '" y1="' + y(alarmPct) + '" y2="' + y(alarmPct) + '" stroke="' + c.bad + '" stroke-dasharray="4 4" stroke-width="1"/>';
+  if (d.length > 1) {
+    var wp = d.filter(function (r) { return !r.ac && r.rateMw != null; });
+    if (wp.length > 1) g += '<polyline fill="none" stroke="' + c.warn + '" stroke-width="1.2" points="' + wp.map(function (r) { return x((r.ms - t0) / 1000) + ',' + yw(r.rateMw / 1000); }).join(' ') + '"/>';
+    var pts = d.map(function (r) { return x((r.ms - t0) / 1000) + ',' + y(r.pct); });
+    g += '<path d="M' + x((d[0].ms - t0) / 1000) + ',' + y(0) + ' L' + pts.join(' L') + ' L' + x((d[d.length - 1].ms - t0) / 1000) + ',' + y(0) + ' Z" fill="' + c.accent + '" opacity=".08"/>';
+    g += '<polyline fill="none" stroke="' + c.accent + '" stroke-width="2" points="' + pts.join(' ') + '"/>';
+    var e = d[d.length - 1]; g += '<circle cx="' + x((e.ms - t0) / 1000) + '" cy="' + y(e.pct) + '" r="3.5" fill="' + c.accent + '"/>';
+  }
+  return g;
+}
+function viewOf(sess, events) {
+  if (!sess) return null;
+  var segs = sess.segments || [];
+  return { t0: segs.length ? segs[0].startMs : sess.startedMs, gaps: gapsOf(events), pauses: pausesOf(events) };
+}
+function drawChart(sess, alarmPct) {
+  $('chart').innerHTML = chartSvg(sess ? st.samples : [], viewOf(sess, st.events), alarmPct || 15, VARS, 1000, 170);
+}
+
+// ---- result card = the report's summary block + the saved file paths ----
+var resultKey = null;
+function renderResult(r) {
+  var box = $('reportBox');
+  var done = !!r; if (document.body.classList.contains('done') !== done) document.body.classList.toggle('done', done);
+  if (!r) { setProp('reportBox', 'hidden', true); resultKey = null; return; }
+  var key = JSON.stringify(r);
+  if (key === resultKey) return;
+  resultKey = key;
+  var hp = r.healthPct == null ? 'n/a' : Math.min(100, r.healthPct).toFixed(1) + '%';
+  var bats = (st.snap && st.snap.batteries) || [];
+  var kv = [['Runtime', L.fmtHm(r.runtimeS) + ' (' + r.startEnd + ')'], ['est. 100→0%', r.estFullS == null ? 'n/a' : L.fmtHm(r.estFullS)],
+    ['Average draw', r.avgW == null ? 'n/a' : r.avgW.toFixed(1) + ' W'], ['Health', hp], ['Cycles', cyclesText(bats)],
+    ['Gaps', r.gapCount ? r.gapCount + ' · ' + L.fmtHm(r.gapS) + ' not counted' : 'None']];
+  if (r.estFullEnergyS != null) kv.splice(2, 0, ['Energy method', L.fmtHm(r.estFullEnergyS)]);
+  kv.push(['Min / max', r.minW != null && r.maxW != null ? r.minW.toFixed(1) + ' / ' + r.maxW.toFixed(1) + ' W' : 'n/a']);
+  kv.push(['Battery saver', r.saver || 'n/a']);
+  var fc = r.fullChangedMwh;   // M7: both full values when the gauge re-learned during the run
+  if (fc && fc.from != null && fc.to != null) kv.push(['Full charge', wh(fc.from) + ' → ' + wh(fc.to) + ' Wh (re-learned)']);
+  var f = r.files || {};
+  var files = [f.html, f.csv].filter(Boolean).map(L.escapeHtml).join(' · ');
+  box.innerHTML = '<h2>Result<span class="spacer"></span><span class="unit">' + L.escapeHtml(r.reason || '') + '</span></h2><div class="kv">' +
+    kv.map(function (p) { return '<div><span>' + p[0] + '</span><span>' + L.escapeHtml(p[1] == null ? 'n/a' : p[1]) + '</span></div>'; }).join('') +
+    '</div>' + (files ? '<div class="files">Saved to Desktop: ' + files + '</div>'
+      : '<div class="files bad">Report not saved to the Desktop. The data is kept in %LOCALAPPDATA%\\LaptapBatteryLogger.</div>');
+  box.hidden = false;
+}
+
+// ---- alarm: one AudioContext, unlocked in the Start click (bug 6); soft sine beeps until OK ----
+function unlockAudio() {
+  try {
+    if (!audio) { var AC = window.AudioContext || window.webkitAudioContext; if (AC) audio = new AC(); }
+    if (audio && audio.state === 'suspended') audio.resume();
+  } catch (e) { audio = null; }
+}
+document.addEventListener('click', function () { if (audio && audio.state === 'suspended') audio.resume(); }, true);
+function beep() {
+  if (!audio) return;
+  var t = audio.currentTime;
+  [0, 0.3].forEach(function (o) {
+    var osc = audio.createOscillator(), g = audio.createGain();
+    osc.type = 'sine'; osc.frequency.setValueAtTime(880, t + o);
+    g.gain.setValueAtTime(0.2, t + o); g.gain.setValueAtTime(0, t + o + 0.15);
+    osc.connect(g); g.connect(audio.destination); osc.start(t + o); osc.stop(t + o + 0.16);
+  });
+}
+function renderAlarm(s, sess) {
+  var on = !!(sess && sess.alarm && !sess.alarmAck && ackedId !== sess.id);
+  if (on && $('alarm').hidden) {
+    var r = s.result || {};
+    $('alarmPctV').textContent = (r.endPct != null ? r.endPct : sess.alarmPct) + '%';
+    $('alarmT').textContent = r.files && r.files.html ? 'Plug in the charger. The test is done and the report is saved to the Desktop.'
+      : 'Plug in the charger. The test is done, but the report could not be saved to the Desktop.';
+    unlockAudio();   // a window the exe re-opened at alarm time has had no click; the exe starts Edge with autoplay allowed
+    $('alarm').hidden = false;
+    beep(); clearInterval(beepTimer); beepTimer = setInterval(beep, 4000);
+  } else if (!on && !$('alarm').hidden) { $('alarm').hidden = true; clearInterval(beepTimer); beepTimer = null; }
+}
+$('alarmOk').onclick = function () {
+  var sess = st.snap && st.snap.session;
+  if (sess) ackedId = sess.id;
+  $('alarm').hidden = true; clearInterval(beepTimer); beepTimer = null;
+  api('/api/ack-alarm', 'POST').catch(function () {});
+};
+
+// ---- controls ----
+$('startBtn').onclick = function () {
+  var sess = st.snap && activeSession(st.snap);
+  if (sess && sess.status === 'done') {   // New test: clear the view; the next Start makes a new session
+    dismissed = sess.id; setHtml('rows', ''); st.samples = []; st.events = []; st.lastListed = null;
+    render(st.snap); return;
+  }
+  unlockAudio();
+  $('startBtn').disabled = true;
+  api('/api/start', 'POST').then(function (r) {
+    if (!r.ok) { $('startMsg').textContent = r.error || 'Charge to at least 96% first.'; $('startMsg').hidden = false; $('startBtn').disabled = false; }
+    else { $('startMsg').hidden = true; dismissed = null; }
+    return poll();
+  }, function () { $('startBtn').disabled = false; });
+};
+$('stopBtn').onclick = function () { $('stopBtn').hidden = true; $('stopConfirm').hidden = false; };
+$('stopNo').onclick = function () { $('stopBtn').hidden = false; $('stopConfirm').hidden = true; };
+$('stopYes').onclick = function () {
+  $('stopBtn').hidden = false; $('stopConfirm').hidden = true;
+  api('/api/stop', 'POST').then(poll, function () {});
+};
+$('alarmPct').onchange = function () {
+  var v = parseInt($('alarmPct').value, 10);
+  api('/api/alarm-pct', 'POST', { pct: v }).then(function (r) {
+    if (r.ok) alarmPctIdle = v;
+    else { var sess = st.snap && activeSession(st.snap); $('alarmPct').value = sess ? sess.alarmPct : alarmPctIdle; }
+    return poll();
+  }, function () {});
+};
+$('exportBtn').onclick = function () {
+  api('/api/save-csv', 'POST').then(function (r) {
+    if (!r.ok) { $('csvMsg').textContent = r.error || 'Could not save to the Desktop.'; $('csvMsg').hidden = false; return; }
+    $('csvMsg').hidden = true;
+    setText('exportBtn', 'Saved to Desktop');
+    setTimeout(function () { setText('exportBtn', 'Save CSV'); }, 1500);
+  }, function () {});
+};
+
+// =====================================================================================================
+// Browser-only mode (developer fallback on file:// only; staff never get this file). Same rules, small:
+// getBattery() with .catch, null until real, 96% rule, IndexedDB "laptapBattery", reload restore, Wake Lock,
+// the embedded template for the downloads. Never reads or writes the v13 key. Answers in the contract shapes.
+// =====================================================================================================
+var Local = (function () {
+  var bat = null, failed = false, rev = 0, S = null, samples = [], alarmPct = 15, timer = null, lock = null, db = null, ready;
+  function now() { return Date.now(); }
+  function pctNow() { return bat ? Math.round(bat.level * 100) : null; }
+  function counted(t) { var s = L.countedTime(S.segments); if (S.open) s += (t - S.open.startMs) / 1000; return s; }
+
+  function idb() {
+    return new Promise(function (res) {
+      try {
+        var q = indexedDB.open('laptapBattery', 1);
+        q.onupgradeneeded = function () { q.result.createObjectStore('kv'); };
+        q.onsuccess = function () { db = q.result; res(); };
+        q.onerror = function () { res(); };
+      } catch (e) { res(); }
+    });
+  }
+  function save() {
+    if (!db) return;
+    try { db.transaction('kv', 'readwrite').objectStore('kv').put({ S: S, samples: samples, rev: rev, alarmPct: alarmPct }, 'current'); } catch (e) {}
+  }
+  function load() {
+    return new Promise(function (res) {
+      if (!db) return res();
+      try {
+        var q = db.transaction('kv').objectStore('kv').get('current');
+        q.onsuccess = function () { var v = q.result; if (v) { S = v.S; samples = v.samples || []; rev = v.rev || 0; alarmPct = v.alarmPct || 15; } res(); };
+        q.onerror = function () { res(); };
+      } catch (e) { res(); }
+    });
+  }
+
+  function sample(ev) {
+    var t = now(), p = pctNow();
+    var x = { rev: ++rev, ms: t, elapsedS: S ? Math.round(counted(t)) : 0, pct: p, mwh: null, fullMwh: null, rateMw: null, rateSrc: null,
+      voltageMv: null, ac: bat ? bat.charging : false, saver: false, csvEvent: ev || 'reading' };
+    if (S) { samples.push(x); S.lastMs = t; S.lastPct = p; }
+    return x;
+  }
+  function event(type, x, note, fromMs, toMs) {
+    var t = x ? x.ms : now();
+    S.events.push({ rev: ++rev, ms: t, elapsedS: Math.round(counted(t)), type: type, pct: x ? x.pct : (S.lastPct == null ? null : S.lastPct),
+      mwh: null, rateMw: null, note: note || '', fromMs: fromMs == null ? null : fromMs, toMs: toMs == null ? null : toMs });
+    save();
+  }
+  function openSeg(x) { S.open = { startMs: x.ms, startPct: x.pct, startMwh: null }; }
+  function closeSeg(t, p) { if (!S.open) return; S.open.endMs = t; S.open.endPct = p; S.open.endMwh = null; S.segments.push(S.open); S.open = null; }
+  function active() { return S && S.status !== 'done'; }
+
+  function schedule() {
+    clearTimeout(timer);
+    if (!active()) return;
+    timer = setTimeout(tick, L.intervalFor(pctNow(), S.alarmPct, S.status === 'running') * 1000);
+  }
+  function tick() {
+    if (!active()) return;
+    var t = now();
+    if (S.status === 'running' && L.detectGap(S.lastMs, t, L.intervalFor(S.lastPct, S.alarmPct, true))) {
+      var from = S.lastMs;
+      closeSeg(S.lastMs, S.lastPct);
+      S.gaps.push({ fromMs: from, toMs: t, reason: 'unknown' });
+      event('gap', null, 'unknown', from, t);
+      var g = sample('gap_end'); if (!g.ac) openSeg(g);
+    } else sample();
+    check(); save(); schedule();
+  }
+  function check() {
+    var p = pctNow();
+    if (S.status === 'running' && bat && !bat.charging && p != null && p <= S.alarmPct) end('alarm');
+  }
+  function onCharging() {
+    if (!active()) return;
+    var x = sample(bat.charging ? 'charger_in' : 'charger_out');
+    if (bat.charging && S.status === 'running') {
+      closeSeg(x.ms, x.pct); S.pauses.push({ fromMs: x.ms, toMs: null }); S.status = 'paused';
+      event('charger_in', x);
+    } else if (!bat.charging && S.status === 'paused') {
+      var p = S.pauses[S.pauses.length - 1]; if (p && !p.toMs) p.toMs = x.ms;
+      S.status = 'running'; openSeg(x); event('charger_out', x);
+    } else if (!bat.charging && S.status === 'waiting') {
+      S.status = 'running'; S.waitingSinceMs = null; S.startPct = x.pct; openSeg(x); event('unplugged', x);
+    }
+    save(); schedule();
+  }
+  function onLevel() { if (S && S.status === 'running') { sample(); check(); save(); } }
+
+  function wake() {
+    if (!active() || !navigator.wakeLock || document.hidden) return;
+    navigator.wakeLock.request('screen').then(function (l) { lock = l; }, function () {});
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { wake(); if (active()) tick(); } });
+
+  function summary() {
+    var gapS = 0, pauseS = 0;
+    S.gaps.forEach(function (g) { gapS += (g.toMs - g.fromMs) / 1000; });
+    S.pauses.forEach(function (p) { pauseS += ((p.toMs || S.endMs) - p.fromMs) / 1000; });
+    return {
+      kind: S.endKind, reason: S.endText, startEnd: pct(S.startPct) + ' → ' + pct(S.endPct), alarmAck: !S.alarm || !!S.alarmAck,
+      runtimeS: L.countedTime(S.segments), startPct: S.startPct, endPct: S.endPct, estFullS: L.estFull(S.segments), estFullEnergyS: null,
+      avgW: null, minW: null, maxW: null, healthPct: null, fullChangedMwh: null,
+      gapCount: S.gaps.length, gapS: Math.round(gapS), pauseCount: S.pauses.length, pauseS: Math.round(pauseS),
+      saver: 'n/a', brightnessStart: null, brightnessEnd: null, plan: 'n/a', windows: 'n/a',
+      files: { html: S.reportPath || null, csv: S.csvPath || null }
+    };
+  }
+  function csvText() {
+    var rows = ['time,elapsed_s,event,windows_pct,remaining_mwh,full_mwh,rate_mw,rate_src,voltage_mv,ac,saver,b0_mwh,b1_mwh,note'];
+    var all = samples.map(function (x) { return { rev: x.rev, row: [L.isoLocal(x.ms), x.elapsedS, x.csvEvent || 'reading', x.pct, '', '', '', '', '', x.ac ? 1 : 0, 0, '', '', ''] }; })
+      .concat(S.events.map(function (e) { return { rev: e.rev, row: [L.isoLocal(e.ms), e.elapsedS, e.type, e.pct, '', '', '', '', '', '', '', '', '', eventLabel(e)] }; }));
+    all.sort(function (a, b) { return a.rev - b.rev; });
+    all.forEach(function (r) { rows.push(L.csvRow(r.row)); });
+    return '﻿' + rows.join('\r\n') + '\r\n';
+  }
+  function t0() { return S.segments.length ? S.segments[0].startMs : (S.open ? S.open.startMs : S.startedMs); }
+  function baseName() { var d = new Date(t0()); return 'Battery UNKNOWN ' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + pad(d.getMinutes()); }
+  function download(name, text, type) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: type }));
+    a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+  }
+  function template() {
+    // The browser's template parser moves a slot that sits directly inside <table> to just before it; put it back after </thead>.
+    return $('report').innerHTML.replace(/\{\{(\w+RowsHtml)\}\}(\s*<table[^>]*>[\s\S]*?<\/thead>)/g, '$2{{$1}}');
+  }
+  function reportHtml() {
+    var r = summary(), st0 = new Date(t0()), en = new Date(S.endMs);
+    var d = {
+      unitModel: 'Browser only', unitSerial: 'UNKNOWN', computerName: '', date: L.isoLocal(st0.getTime()).slice(0, 10),
+      startTime: pad(st0.getHours()) + ':' + pad(st0.getMinutes()), endTime: pad(en.getHours()) + ':' + pad(en.getMinutes()),
+      reason: r.reason, startEnd: r.startEnd, runtime: L.fmtHm(r.runtimeS), estFull: r.estFullS == null ? 'n/a' : L.fmtHm(r.estFullS),
+      estFullEnergy: 'n/a', avgW: 'n/a', minW: 'n/a', maxW: 'n/a', healthPct: 'n/a', batteryRowsHtml: '',
+      gapsPauses: (r.gapCount ? r.gapCount + (r.gapCount === 1 ? ' gap · ' : ' gaps · ') + L.fmtHm(r.gapS) + ' (unknown)' : '') +
+        (r.pauseCount ? (r.gapCount ? ' · ' : '') + r.pauseCount + (r.pauseCount === 1 ? ' pause · ' : ' pauses · ') + L.fmtHm(r.pauseS) : '') || 'None',
+      saver: 'n/a', brightness: 'n/a', plan: 'n/a', windows: 'n/a', alarmNote: S.alarm && !S.alarmAck ? 'Alarm not acknowledged' : '', version: '14.0.0',
+      chartSvgHtml: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 220" width="100%">' + chartSvg(samples, { t0: t0(), gaps: S.gaps, pauses: S.pauses }, S.alarmPct, HEX, 1000, 220) + '</svg>',
+      eventRowsHtml: S.events.slice(0, 25).map(function (e) { return '<tr class="' + eventKind(e) + '"><td>' + clock(e.ms) + '</td><td>' + L.escapeHtml(eventLabel(e)) + '</td><td class="n">' + (e.pct == null ? '' : e.pct) + '</td><td class="n"></td><td class="n"></td><td class="n">' + L.fmtElapsed(e.elapsedS) + '</td></tr>'; }).join(''),
+      eventsMore: S.events.length > 25 ? (S.events.length - 25) + ' more in the CSV' : ''
+    };
+    return '<!DOCTYPE html>\n' + L.fillReport(template(), d);
+  }
+  function end(kind) {
+    var t = now(), p = pctNow();
+    closeSeg(S.lastMs || t, S.lastPct);
+    var lp = S.pauses[S.pauses.length - 1]; if (lp && !lp.toMs) lp.toMs = t;
+    S.endMs = t; S.endPct = S.lastPct != null ? S.lastPct : p; S.endKind = kind; S.alarm = kind === 'alarm';
+    if (S.startPct == null) S.startPct = S.endPct;
+    S.endText = L.endReason(kind, S.endPct, L.countedTime(S.segments)); S.status = 'done';
+    event(kind === 'alarm' ? 'alarm' : 'stop', null);
+    var b = baseName();
+    S.reportPath = b + '.html'; S.csvPath = b + '.csv';
+    download(b + '.html', reportHtml(), 'text/html');
+    download(b + '.csv', csvText(), 'text/csv');
+    event('report_saved', null);
+    if (lock) { try { lock.release(); } catch (e) {} lock = null; }
+    clearTimeout(timer); save();
+  }
+
+  ready = idb().then(load).then(function () {
+    if (!navigator.getBattery) { failed = true; return; }
+    return navigator.getBattery().then(function (b) {
+      bat = b;
+      b.addEventListener('levelchange', onLevel);
+      b.addEventListener('chargingchange', onCharging);
+      if (active()) { wake(); tick(); }
+    }, function () { failed = true; });
+  });
+
+  function state(since) {
+    var p = pctNow(), segs = [];
+    if (S) { segs = S.segments.slice(); if (S.open) segs.push({ startMs: S.open.startMs, endMs: null, startPct: S.open.startPct, endPct: null, startMwh: null, endMwh: null }); }
+    return {
+      rev: rev, version: '14.0.0',
+      unit: { maker: '', model: 'Browser only', serial: null, computerName: null }, batteries: [],
+      now: { pct: p, mwh: null, fullMwh: null, rateMw: null, ac: bat ? bat.charging : null, charging: bat ? bat.charging && p < 100 : false, saver: false },
+      session: S ? { id: S.id, status: S.status, startedMs: S.startedMs, waitingSinceMs: S.waitingSinceMs || null, alarmPct: S.alarmPct, alarmPctMax: 50,
+        alarm: !!S.alarm, alarmAck: !!S.alarmAck, segments: segs } : null,
+      samples: S ? samples.filter(function (x) { return x.rev > since; }) : [],
+      events: S ? S.events.filter(function (e) { return e.rev > since; }) : [],
+      result: S && S.status === 'done' ? summary() : null
+    };
+  }
+
+  function request(path, method, body) {
+    return ready.then(function () {
+      var name = path.replace(/^\/api\//, '').replace(/\?.*$/, '');
+      if (method === 'GET') return state(+((path.match(/since=(\d+)/) || [])[1] || 0));
+      switch (name) {
+        case 'heartbeat': return { ok: true };
+        case 'start':
+          if (active()) return { ok: false, error: 'A test is already running.' };
+          if (failed || !bat || !L.canStart(pctNow())) return { ok: false, error: 'Charge to at least 96% first.' };
+          S = { id: 'b' + now(), status: 'waiting', startedMs: now(), waitingSinceMs: null, alarmPct: alarmPct, segments: [], open: null, gaps: [], pauses: [], events: [], lastMs: null, lastPct: null };
+          samples = [];
+          var x = sample('start');
+          event('start', x);
+          if (bat.charging) { S.waitingSinceMs = x.ms; event('waiting_unplug', x); }
+          else { S.status = 'running'; S.startPct = x.pct; openSeg(x); }
+          wake(); save(); schedule();
+          return { ok: true };
+        case 'stop': if (!active()) return { ok: false, error: 'No test is running.' }; end('stop'); return { ok: true };
+        case 'ack-alarm': if (S) { S.alarmAck = true; save(); } return { ok: true };
+        case 'alarm-pct':
+          var v = body && body.pct;
+          if (!(v >= 10 && v <= 50)) return { ok: false, error: 'Alarm must be 10 to 50%.' };
+          alarmPct = v; if (active()) S.alarmPct = v; save(); return { ok: true };
+        case 'save-csv': if (!S) return { ok: false, error: 'No test yet.' }; download(baseName() + '.csv', csvText(), 'text/csv'); return { ok: true, file: baseName() + '.csv' };
+      }
+      return { ok: false, error: 'Unknown command.' };
+    });
+  }
+  return { request: request };
+})();
+
+poll();
+})();
+</script>
+</body>
+</html>

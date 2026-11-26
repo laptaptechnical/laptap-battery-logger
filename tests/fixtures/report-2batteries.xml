@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<?xml-stylesheet type='text/xsl' href='C:\battery-stylesheet.xsl'?>
+<BatteryReport xmlns="http://schemas.microsoft.com/battery/2012">
+  <ReportInformation><ReportVersion>1.1</ReportVersion></ReportInformation>
+  <Batteries>
+    <Battery><Id>45N1127</Id><Manufacturer>SANYO</Manufacturer><SerialNumber>0001</SerialNumber><ManufactureDate></ManufactureDate><Chemistry>LION</Chemistry><LongTerm>1</LongTerm><RelativeCapacity>0</RelativeCapacity><DesignCapacity>23200</DesignCapacity><FullChargeCapacity>20880</FullChargeCapacity><CycleCount>412</CycleCount></Battery>
+    <Battery><Id>45N1135</Id><Manufacturer>LGC</Manufacturer><SerialNumber>0001</SerialNumber><ManufactureDate></ManufactureDate><Chemistry>LION</Chemistry><LongTerm>1</LongTerm><RelativeCapacity>0</RelativeCapacity><DesignCapacity>47520</DesignCapacity><FullChargeCapacity>38016</FullChargeCapacity><CycleCount>389</CycleCount></Battery>
+  </Batteries>
+  <RuntimeEstimates><DesignCapacity><Capacity>51528</Capacity></DesignCapacity></RuntimeEstimates>
+</BatteryReport>

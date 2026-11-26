@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Battery Monitor v13.0</title>
+
+<style>
+:root {
+/*Open Source Battery logger Made by: @Mark and updated by: @Errol*/
+/*Message for future OJT you can upgrade this Battery logger by adding more features or fixing bugs*/
+    --bg: #f3f6fb;
+    --panel: #ffffff;
+    --border: #d0d7e2;
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --danger: #dc2626;
+    --success: #16a34a;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--text);
+}
+
+.container {
+    max-width: 900px;
+    margin: auto;
+    background: var(--panel);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: 0 12px 32px rgba(0,0,0,0.06);
+    overflow: hidden;
+}
+
+.header {
+    background: linear-gradient(180deg, #f9fbff, #edf2fa);
+    border-bottom: 1px solid var(--border);
+    padding: 18px;
+    text-align: center;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.content {
+    padding: 24px;
+}
+
+/* Battery Status icon */
+.battery-card {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+}
+
+.battery-icon-container {
+    position: relative;
+    width: 64px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+}
+
+/* Win11 SVG structure */
+.w11-battery {
+    width: 56px;
+    height: 28px;
+    border: 2px solid #334155;
+    border-radius: 5px;
+    padding: 2px;
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+/* Battery terminal tip */
+.w11-battery::after {
+    content: '';
+    position: absolute;
+    right: -5px;
+    top: 7px;
+    width: 3px;
+    height: 10px;
+    background: #334155;
+    border-radius: 0 2px 2px 0;
+}
+
+.battery-level-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--primary);
+    border-radius: 2px;
+    transition: width 0.5s ease, background-color 0.5s ease;
+}
+
+.battery-level-fill.charging {
+    background: var(--success);
+}
+
+/* Battery level styling below 15% */
+.battery-level-fill.low-battery {
+    background: var(--danger);
+}
+
+/* Charging Bolt Overlay */
+.charging-bolt {
+    position: absolute;
+    top: 50%;
+    left: 45%;
+    transform: translate(-50%, -50%);
+    width: 16px;
+    height: 16px;
+    color: #0f172a;
+    display: none;
+}
+
+.charging-bolt.show {
+    display: block;
+}
+
+.battery-info-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.battery-percentage {
+    font-size: 28px;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1;
+}
+
+.battery-state-label {
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 500;
+}
+
+.notepad {
+    background: #fcfdff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    height: 380px;
+    overflow-y: auto;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 14px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+}
+
+.controls {
+    margin-top: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+button {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 9px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+button:hover:not(:disabled) {
+    background: #eef4ff;
+    border-color: var(--primary);
+}
+
+button.primary {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+button.primary:hover:not(:disabled) {
+    background: var(--primary-hover);
+}
+
+button.danger:hover:not(:disabled) {
+    background: #fee2e2;
+    border-color: var(--danger);
+}
+
+button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.status {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: #f9fbff;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 14px;
+    color: var(--muted);
+}
+
+/* Custom Warning Modal Overlay */
+.alert-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.alert-overlay.show {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.alert-box {
+    background: #ffffff;
+    border: 2px solid var(--danger);
+    border-radius: 12px;
+    padding: 24px;
+    width: 90%;
+    max-width: 400px;
+    text-align: center;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    transform: scale(0.9);
+    transition: transform 0.3s ease;
+}
+
+.alert-overlay.show .alert-box {
+    transform: scale(1);
+}
+
+.alert-icon {
+    font-size: 40px;
+    color: var(--danger);
+    margin-bottom: 12px;
+}
+
+.alert-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 8px;
+}
+
+.alert-msg {
+    font-size: 15px;
+    color: var(--muted);
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+.alert-btn {
+    background: var(--danger);
+    color: white;
+    border: 1px solid var(--danger);
+    padding: 10px 24px;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 6px;
+    width: 100%;
+}
+
+.alert-btn:hover {
+    background: #b91c1c;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+    <div class="header">
+        BATTERY MONITOR v13.0
+    </div>
+
+    <div class="content">
+        <!-- Windows 11 Battery Display Widget -->
+        <div class="battery-card">
+            <div class="battery-icon-container">
+                <div class="w11-battery">
+                    <div id="batteryFill" class="battery-level-fill"></div>
+                </div>
+                <!-- Windows 11 style inline SVG lightning icon -->
+                <svg id="boltIcon" class="charging-bolt" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M11.251.068a.5.5 0 0 1 .227.58L9.677 6.5H13a.5.5 0 0 1 .364.843l-8 8.5a.5.5 0 0 1-.842-.49L6.323 9.5H3a.5.5 0 0 1-.364-.843l8-8.5a.5.5 0 0 1 .615-.09z"/>
+                </svg>
+            </div>
+            <div class="battery-info-text">
+                <span id="uiPercentage" class="battery-percentage">--%</span>
+                <span id="uiStatusLabel" class="battery-state-label">Checking hardware...</span>
+            </div>
+        </div>
+
+        <div class="notepad" id="logOutput">
+Hibernate events now tracked
+----------------------------------------
+        </div>
+
+        <div class="controls">
+            <button id="startBtn" class="primary">Start Logging</button>
+            <button id="pauseBtn" disabled>Pause</button>
+            <button id="resumeBtn" disabled>Resume</button>
+            <button id="clearBtn" class="danger">Clear Log</button>
+            <button id="saveBtn">Save Log</button>
+            <button id="restartBtn" disabled>Restart Session</button>
+        </div>
+
+        <div class="status" id="status">
+            Ready. Click "Start Logging" to begin.
+        </div>
+    </div>
+</div>
+
+<!-- Warning Modal Overlay Architecture -->
+<div id="lowBatteryAlert" class="alert-overlay">
+    <div class="alert-box">
+        <div class="alert-icon">⚠️</div>
+        <div class="alert-title">Critical Battery Warning</div>
+        <div class="alert-msg">Your hardware battery is at <span id="alertPercValue">15</span>%. Please connect your charger immediately to avoid data or session loss.</div>
+        <button id="dismissAlertBtn" class="alert-btn">Acknowledge</button>
+    </div>
+</div>
+
+<script>
+const logOutput = document.getElementById('logOutput');
+const startBtn = document.getElementById('startBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const resumeBtn = document.getElementById('resumeBtn');
+const clearBtn = document.getElementById('clearBtn');
+const saveBtn = document.getElementById('saveBtn');
+const restartBtn = document.getElementById('restartBtn');
+const status = document.getElementById('status');
+
+// New UI Elements
+const batteryFill = document.getElementById('batteryFill');
+const boltIcon = document.getElementById('boltIcon');
+const uiPercentage = document.getElementById('uiPercentage');
+const uiStatusLabel = document.getElementById('uiStatusLabel');
+
+// Warning Alert Components
+const lowBatteryAlert = document.getElementById('lowBatteryAlert');
+const alertPercValue = document.getElementById('alertPercValue');
+const dismissAlertBtn = document.getElementById('dismissAlertBtn');
+
+let isLogging = false;
+let isPaused = false;
+
+let loggingInterval = null;
+let elapsedInterval = null;
+
+let startTime = null;
+let pauseStartTime = null;
+let totalPauseDuration = 0;
+
+let batteryLevel = 95;
+let batteryObj = null;
+let initialBatteryLevel = null;
+
+const batteryCount = 1;
+
+// Trap latch to keep alarm from running repeatedly
+let lowBatteryWarningTriggered = false;
+
+// Load saved log
+const savedLog = localStorage.getItem('BatteryTestResultW7');
+if (savedLog) {
+    logOutput.textContent = savedLog;
+}
+
+// Play default synth alert at maximum capacity settings for 10 seconds
+function playMaxWarningSound() {
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return;
+        
+        const ctx = new AudioContext();
+        
+        const osc1 = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        
+        osc1.type = 'sawtooth'; 
+        osc1.frequency.setValueAtTime(780, ctx.currentTime); 
+        
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(390, ctx.currentTime);  
+        
+        gainNode.gain.setValueAtTime(1.0, ctx.currentTime);
+        
+        // Dynamic Pulsing Filter to create an emergency "beep beep" over 10 seconds
+        const pulseSpeed = 0.3; 
+        for (let t = 0; t < 10; t += pulseSpeed) {
+            gainNode.gain.setValueAtTime(1.0, ctx.currentTime + t);
+            gainNode.gain.setValueAtTime(0.0, ctx.currentTime + t + (pulseSpeed * 0.6));
+        }
+        
+        gainNode.gain.setValueAtTime(0.0, ctx.currentTime + 10.0);
+        
+        osc1.connect(gainNode);
+        osc2.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        
+        osc1.start();
+        osc2.start();
+        osc1.stop(ctx.currentTime + 10.0);
+        osc2.stop(ctx.currentTime + 10.0);
+    } catch(e) {
+        console.warn("Audio Context playback intercepted by browser user-interaction rules:", e);
+    }
+}
+
+// Trigger warning overlay execution layout
+function triggerLowBatteryNotification(level) {
+    alertPercValue.textContent = level;
+    lowBatteryAlert.classList.add('show');
+    playMaxWarningSound();
+    
+    // Output critical entry directly into the log terminal
+    const timestamp = new Date().toLocaleString();
+    logOutput.textContent += `[CRITICAL WARNING] Low Battery Threshold crossed: ${level}% at ${timestamp}\n`;
+    logOutput.scrollTop = logOutput.scrollHeight;
+    autoSave();
+}
+
+dismissAlertBtn.onclick = () => {
+    lowBatteryAlert.classList.remove('show');
+};
+
+// Update the real-time card visual helper
+function updateVisualCard(level, isCharging) {
+    uiPercentage.textContent = `${level}%`;
+    batteryFill.style.width = `${level}%`;
+    
+    // Evaluates real low power theme threshold at 15%
+    if (level <= 15) {
+        batteryFill.classList.add('low-battery');
+        
+        if (!isCharging && !lowBatteryWarningTriggered) {
+            triggerLowBatteryNotification(level);
+            lowBatteryWarningTriggered = true;
+        }
+    } else {
+        batteryFill.classList.remove('low-battery');
+        if (level > 15) {
+            lowBatteryWarningTriggered = false;
+        }
+    }
+    
+    if (isCharging) {
+        uiStatusLabel.textContent = "Plugged in, charging";
+        batteryFill.classList.add('charging');
+        boltIcon.classList.add('show');
+        lowBatteryWarningTriggered = false; 
+    } else {
+        uiStatusLabel.textContent = "On battery power";
+        batteryFill.classList.remove('charging');
+        boltIcon.classList.remove('show');
+    }
+}
+
+// Battery API (cached)
+if (navigator.getBattery) {
+    navigator.getBattery().then(battery => {
+        batteryObj = battery;
+        batteryLevel = Math.round(battery.level * 100);
+        
+        // Initial visual update
+        updateVisualCard(batteryLevel, battery.charging);
+        
+        // Listen for live physical changes to update card instantly
+        battery.addEventListener('levelchange', () => {
+            batteryLevel = Math.round(battery.level * 100);
+            updateVisualCard(batteryLevel, battery.charging);
+        });
+        
+        battery.addEventListener('chargingchange', () => {
+            updateVisualCard(batteryLevel, battery.charging);
+        });
+    });
+} else {
+    // Fallback display if Battery API is unsupported by browser architecture
+    updateVisualCard(batteryLevel, false);
+}
+
+startBtn.onclick = startLogging;
+pauseBtn.onclick = pauseLogging;
+resumeBtn.onclick = resumeLogging;
+clearBtn.onclick = clearLog;
+saveBtn.onclick = saveLog;
+restartBtn.onclick = restartSession;
+
+async function getBatteryInfo() {
+    if (batteryObj) {
+        batteryLevel = Math.round(batteryObj.level * 100);
+    }
+    return {
+        level: batteryLevel,
+        status: batteryCount === 2
+            ? `C: ${batteryLevel}% (B0: ${batteryLevel}%, B1: ${batteryLevel}%)`
+            : `C: ${batteryLevel}%`
+    };
+}
+
+async function logBatteryInfo() {
+    if (!isLogging || isPaused) return;
+
+    const battery = await getBatteryInfo();
+    const now = new Date();
+    const elapsed = formatElapsedTime(now - startTime - totalPauseDuration);
+
+    if (initialBatteryLevel === null) {
+        initialBatteryLevel = battery.level;
+        logOutput.textContent +=
+            `=== SESSION START ===\n` +
+            `Time: ${now.toLocaleString()}\n` +
+            `Initial Battery Status: ${battery.status}\n`;
+    }
+
+    logOutput.textContent +=
+        `Checkpoint: ${battery.status} at ${now.toLocaleString()} (Elapsed: ${elapsed})\n`;
+
+    logOutput.scrollTop = logOutput.scrollHeight;
+    autoSave();
+    
+    // Fallback interval verification check at 15%
+    if (battery.level <= 15 && !batteryObj?.charging && !lowBatteryWarningTriggered) {
+        triggerLowBatteryNotification(battery.level);
+        lowBatteryWarningTriggered = true;
+    }
+}
+
+function startLogging() {
+    if (isLogging) return;
+
+    isLogging = true;
+    isPaused = false;
+    startTime = new Date();
+    totalPauseDuration = 0;
+    initialBatteryLevel = null;
+
+    loggingInterval = setInterval(logBatteryInfo, 60000);
+    elapsedInterval = setInterval(updateElapsedTime, 1000);
+
+    logBatteryInfo();
+
+    startBtn.disabled = true;
+    pauseBtn.disabled = false;
+    resumeBtn.disabled = true;
+    restartBtn.disabled = false;
+
+    status.textContent = 'Status: RUNNING | Elapsed: 00:00:00';
+}
+
+function pauseLogging() {
+    if (!isLogging || isPaused) return;
+
+    isPaused = true;
+    pauseStartTime = new Date();
+    clearInterval(loggingInterval);
+
+    pauseBtn.disabled = true;
+    resumeBtn.disabled = false;
+    status.textContent = 'Status: PAUSED';
+}
+
+function resumeLogging() {
+    if (!isLogging || !isPaused) return;
+
+    const now = new Date();
+    totalPauseDuration += now - pauseStartTime;
+    isPaused = false;
+
+    loggingInterval = setInterval(logBatteryInfo, 60000);
+
+    logOutput.textContent +=
+        `=== RESUME ===\n` +
+        `Time: ${now.toLocaleString()}\n` +
+        `Battery Status: C: ${batteryLevel}%\n` +
+        `Pause Duration: ${formatElapsedTime(now - pauseStartTime)}\n`;
+
+    pauseBtn.disabled = false;
+    resumeBtn.disabled = true;
+    status.textContent = 'Status: RUNNING';
+}
+
+function clearLog() {
+    stopAllTimers();
+
+    logOutput.textContent =
+        'Hibernate events now tracked\n----------------------------------------';
+
+    localStorage.removeItem('BatteryTestResultW7');
+
+    isLogging = false;
+    isPaused = false;
+    initialBatteryLevel = null;
+    totalPauseDuration = 0;
+    lowBatteryWarningTriggered = false;
+
+    startBtn.disabled = false;
+    pauseBtn.disabled = true;
+    resumeBtn.disabled = true;
+    restartBtn.disabled = true;
+
+    status.textContent = 'Ready. Click "Start Logging" to begin.';
+}
+
+function restartSession() {
+    clearLog();
+    startLogging();
+}
+
+function saveLog() {
+    localStorage.setItem('BatteryTestResultW7', logOutput.textContent);
+    status.textContent = `Log saved at ${new Date().toLocaleTimeString()}`;
+}
+
+function autoSave() {
+    if (isLogging && !isPaused) {
+        localStorage.setItem('BatteryTestResultW7', logOutput.textContent);
+    }
+}
+
+function updateElapsedTime() {
+    if (!isLogging || isPaused) return;
+    const elapsed = formatElapsedTime(new Date() - startTime - totalPauseDuration);
+    status.textContent = `Status: RUNNING | Elapsed: ${elapsed}`;
+}
+
+function stopAllTimers() {
+    clearInterval(loggingInterval);
+    clearInterval(elapsedInterval);
+    loggingInterval = null;
+    elapsedInterval = null;
+}
+
+function formatElapsedTime(ms) {
+    const t = Math.floor(ms / 1000);
+    const h = Math.floor(t / 3600);
+    const m = Math.floor((t % 3600) / 60);
+    const s = t % 60;
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+</script>
+</body>
+</html>

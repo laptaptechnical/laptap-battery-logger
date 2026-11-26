@@ -1,0 +1,101 @@
+{
+  "_note": "Shared by tests/logic.test.js (logic.js) and tests/HelperTests.cs (Rules.cs). Same inputs, same answers.",
+  "intervalFor": [
+    [100, 15, true, 60], [21, 15, true, 60], [20, 15, true, 30], [18, 15, true, 10], [17, 15, true, 10],
+    [15, 15, true, 10], [10, 15, false, 60], [null, 15, true, 60], [40, 40, true, 10]
+  ],
+  "detectGap": [
+    [0, 150000, 60, false], [0, 150001, 60, true], [0, 100001, 10, true], [0, 100000, 10, false], [null, 999999, 60, false]
+  ],
+  "canStart": [[95, false], [96, true], [99, true], [100, true], [null, false]],
+  "segmentCases": [
+    {
+      "name": "audit example: 98 to 60, charger to 90, to 15 (counted drop 113, not 83)",
+      "events": [
+        {"ms": 0, "type": "unplugged", "pct": 98, "mwh": 46000},
+        {"ms": 14400000, "type": "charger_in", "pct": 60, "mwh": 28000},
+        {"ms": 18000000, "type": "charger_out", "pct": 90, "mwh": 42000},
+        {"ms": 43200000, "type": "alarm", "pct": 15, "mwh": 7000}
+      ],
+      "segments": 2, "countedTime": 39600, "countedDrop": 113, "countedEnergy": 53000,
+      "estFull": 35044, "avgW": 4.818181818181818, "fullMwh": 47378, "estFullEnergy": 35399
+    },
+    {
+      "name": "one sleep gap: the % lost while asleep is not counted",
+      "events": [
+        {"ms": 0, "type": "unplugged", "pct": 98, "mwh": 46000},
+        {"ms": 3600000, "type": "gap", "pct": 90, "mwh": 42000},
+        {"ms": 5400000, "type": "gap_end", "pct": 87, "mwh": 40500},
+        {"ms": 21600000, "type": "alarm", "pct": 15, "mwh": 7000}
+      ],
+      "segments": 2, "countedTime": 19800, "countedDrop": 80, "countedEnergy": 37500,
+      "estFull": 24750, "avgW": 6.818181818181818, "fullMwh": 47378, "estFullEnergy": 25016
+    },
+    {
+      "name": "gap and charger pause in one test",
+      "events": [
+        {"ms": 0, "type": "unplugged", "pct": 100, "mwh": 47000},
+        {"ms": 3600000, "type": "gap", "pct": 90, "mwh": 42300},
+        {"ms": 4800000, "type": "gap_end", "pct": 88, "mwh": 41360},
+        {"ms": 8400000, "type": "charger_in", "pct": 70, "mwh": 32900},
+        {"ms": 9000000, "type": "charger_out", "pct": 80, "mwh": 37600},
+        {"ms": 27000000, "type": "alarm", "pct": 15, "mwh": 7050}
+      ],
+      "segments": 3, "countedTime": 25200, "countedDrop": 93, "countedEnergy": 43710,
+      "estFull": 27097, "avgW": 6.244285714285715, "fullMwh": 47000, "estFullEnergy": 27097
+    },
+    {
+      "name": "small drop: no est. until 10 points",
+      "events": [
+        {"ms": 0, "type": "unplugged", "pct": 98, "mwh": null},
+        {"ms": 600000, "type": "stop", "pct": 95, "mwh": null}
+      ],
+      "segments": 1, "countedTime": 600, "countedDrop": 3, "countedEnergy": null,
+      "estFull": null, "avgW": null, "fullMwh": null, "estFullEnergy": null
+    }
+  ],
+  "health": [
+    [47378, 51528, 91.9, 91.9], [52000, 50000, 104, 100], [95, 100, null, null], [null, 51528, null, null],
+    [45000, null, null, null], [36434, 51528, 70.7, 70.7]
+  ],
+  "etaToAlarm": [
+    {"points": "linear: e 0..900 step 60, pct = 50 - e/120", "alarm": 15, "expect": 3300},
+    {"points": "four points only", "alarm": 15, "expect": null},
+    {"points": "flat at 80", "alarm": 15, "expect": null}
+  ],
+  "fmtElapsed": [[0, "0:00:00"], [3725, "1:02:05"], [59.6, "0:01:00"], [90061, "25:01:01"]],
+  "fmtHm": [[0, "0:00"], [18060, "5:01"], [3599, "0:59"]],
+  "isoLocal": [
+    [1795654800000, 480, "2026-11-26T09:00:00+08:00"], [1795654800000, -300, "2026-11-25T20:00:00-05:00"],
+    [1795654800000, 0, "2026-11-26T01:00:00+00:00"], [1795654800000, 330, "2026-11-26T06:30:00+05:30"]
+  ],
+  "csvRow": [
+    [["a", "b,c", "say \"hi\"", null, 5, "line\nbreak"], "a,\"b,c\",\"say \"\"hi\"\"\",,5,\"line\nbreak\""],
+    [["2026-11-26T09:00:00+08:00", 0, "start", 98, 46000], "2026-11-26T09:00:00+08:00,0,start,98,46000"]
+  ],
+  "escapeHtml": [
+    ["<script>alert('x')</script> & \"q\"", "&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt; &amp; &quot;q&quot;"],
+    ["HP EliteBook 840 G5", "HP EliteBook 840 G5"]
+  ],
+  "fillReport": [
+    ["<h1>{{unit}}</h1>{{chartHtml}}{{missing}}", {"unit": "<script>x</script>", "chartHtml": "<svg></svg>"}, "<h1>&lt;script&gt;x&lt;/script&gt;</h1><svg></svg>"]
+  ],
+  "sanitizeSerial": [["5cb41 90/fvx", "5CB4190FVX"], ["", "UNKNOWN"], ["PF-2AB3C", "PF-2AB3C"], ["ÀB#12", "B12"]],
+  "isPlaceholderSerial": [
+    ["To be filled by O.E.M.", true], ["Default string", true], ["0000000", true], ["  ", true],
+    ["System Serial Number", true], ["123456789", true], ["N/A", true], ["5CB4190FVX", false], ["PF2ABCDE", false]
+  ],
+  "validSample": [
+    [{"rateMw": 400000, "mwh": 80000, "pct": 101}, 47000, {"rateMw": null, "mwh": null, "pct": null}],
+    [{"rateMw": 9000, "mwh": 30000, "pct": 60}, 47000, {"rateMw": 9000, "mwh": 30000, "pct": 60}],
+    [{"rateMw": -1, "mwh": -5, "pct": -1}, null, {"rateMw": null, "mwh": null, "pct": null}],
+    [{"rateMw": 300000, "mwh": 70500, "pct": 0}, 47000, {"rateMw": 300000, "mwh": 70500, "pct": 0}]
+  ],
+  "endReason": [
+    ["alarm", 15, 100, "Ended at alarm"], ["stop", 50, 100, "Stopped early"],
+    ["hibernated", 9, 18060, "Hibernated at 9% after 5:01"], ["shutdown", 7, 3600, "Shut down at 7% after 1:00"],
+    ["shutdown_user", 20, 5400, "Shut down by user at 20% after 1:30"],
+    ["logger_stopped", null, 60, "Logger stopped at n/a after 0:01"]
+  ],
+  "powerState": [[false, false, 80, "Draining"], [true, true, 80, "Plugged in, charging"], [true, false, 100, "Plugged in, full"], [true, false, 99, "Plugged in, charging"]]
+}

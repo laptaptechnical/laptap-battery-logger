@@ -1,0 +1,18 @@
+{
+  "_note": "Event-log classification fixtures. Data fields copied from real Kernel-Power records on the owner's laptop (2026-11-25); the critical-battery message wording is assumed [A].",
+  "xmlSample": "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Kernel-Power' Guid='{331c3b3a-2005-44c2-ac5e-77220c37d6b4}'/><EventID>42</EventID><TimeCreated SystemTime='2026-11-24T16:44:10.1234567Z'/></System><EventData><Data Name='TargetState'>5</Data><Data Name='EffectiveState'>5</Data><Data Name='Reason'>13</Data><Data Name='Flags'>0</Data><Data Name='TransitionsToOn'>2</Data></EventData></Event>",
+  "xmlSampleMs": 1795538650123,
+  "cases": [
+    {"name": "42 TargetState 4 = slept", "events": [{"provider": "Microsoft-Windows-Kernel-Power", "id": 42, "data": {"TargetState": "4"}, "message": "The system is entering sleep.\r\n\r\nSleep Reason: Application API"}], "gap": "slept", "critical": false, "recovery": "logger_stopped"},
+    {"name": "42 TargetState 5 = hibernated", "events": [{"provider": "Microsoft-Windows-Kernel-Power", "id": 42, "data": {"TargetState": "5", "Reason": "13"}, "message": "The system is entering sleep.\r\n\r\nSleep Reason: Hibernate from Sleep - Standby Battery Budget Exceeded"}], "gap": "hibernated", "critical": false, "recovery": "logger_stopped"},
+    {"name": "506 Modern Standby enter = slept", "events": [{"provider": "Microsoft-Windows-Kernel-Power", "id": 506, "data": {"Reason": "20"}, "message": ""}], "gap": "slept", "critical": false, "recovery": "logger_stopped"},
+    {"name": "507 Modern Standby exit = slept", "events": [{"provider": "Microsoft-Windows-Kernel-Power", "id": 507, "data": {"Reason": "20", "SleepEntered": "true"}, "message": ""}], "gap": "slept", "critical": false, "recovery": "logger_stopped"},
+    {"name": "Power-Troubleshooter 1 = slept", "events": [{"provider": "Microsoft-Windows-Power-Troubleshooter", "id": 1, "data": {}, "message": ""}], "gap": "slept", "critical": false, "recovery": "logger_stopped"},
+    {"name": "nothing = unknown", "events": [], "gap": "unknown", "critical": false, "recovery": "logger_stopped"},
+    {"name": "41 unexpected shutdown", "events": [{"provider": "Microsoft-Windows-Kernel-Power", "id": 41, "data": {"SleepInProgress": "6"}, "message": ""}], "gap": "unknown", "critical": false, "recovery": "shutdown"},
+    {"name": "6008 unexpected shutdown", "events": [{"provider": "EventLog", "id": 6008, "data": {}, "message": ""}], "gap": "unknown", "critical": false, "recovery": "shutdown"},
+    {"name": "1074 shut down by user", "events": [{"provider": "User32", "id": 1074, "data": {}, "message": ""}], "gap": "unknown", "critical": false, "recovery": "shutdown_user"},
+    {"name": "42 critical battery hibernate", "events": [{"provider": "Microsoft-Windows-Kernel-Power", "id": 42, "data": {"TargetState": "5"}, "message": "The system is entering sleep.\r\n\r\nSleep Reason: Battery Critical"}], "gap": "hibernated", "critical": true, "recovery": "hibernated"},
+    {"name": "41 wins over 1074", "events": [{"provider": "User32", "id": 1074, "data": {}, "message": ""}, {"provider": "Microsoft-Windows-Kernel-Power", "id": 41, "data": {}, "message": ""}], "gap": "unknown", "critical": false, "recovery": "shutdown"}
+  ]
+}
