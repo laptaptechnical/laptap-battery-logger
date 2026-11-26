@@ -1,4 +1,4 @@
-// Battery-Logger/v14/src/Report.cs
+// src/Report.cs
 // The end-of-test result: summary numbers (segment-based, C2), the one-page HTML report filled from the
 // <template id="report"> inside the embedded index.html, and the CSV. Saved to the Desktop only (D4, D14).
 using System;
@@ -141,7 +141,7 @@ public static class Report
         }
         d["eventRowsHtml"] = ev.ToString();
         d["eventsMore"] = S.Events.Count > 25 ? (S.Events.Count - 25) + " more in the CSV" : "";
-        d["version"] = "14.0.0";
+        d["version"] = AppVersion.Version;
         return d;
     }
 

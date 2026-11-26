@@ -78,3 +78,56 @@ test('endReason wording', () => { for (const [k, p, s, want] of F.endReason) ass
 test('powerState: 100% on AC is "Plugged in, full" (bug 13)', () => {
   for (const [ac, ch, p, want] of F.powerState) assert.equal(L.powerState(ac, ch, p), want);
 });
+
+// ---------------- v15: band, live log, DOM cap (plan §2, §3, §6.1) ----------------
+const BASE = { checks: { battery: true, pct96: true, unplugged: false }, armed: true, countdownEndsMs: null, nowMs: 1000, now: { pct: 100 } };
+test('bandView: Ready shows the checklist; Start only after a Cancel', () => {
+  const v = L.bandView(BASE);
+  assert.equal(v.mode, 'ready');
+  assert.deepEqual(v.checks.map(c => [c.id, c.ok]), [['battery', true], ['pct96', true], ['unplugged', false]]);
+  assert.equal(v.showStart, false);
+  assert.equal(L.bandView({ ...BASE, armed: false }).showStart, true);
+});
+test('bandView: below 96% says the current %, plus the charge-limit hint after 10 flat minutes', () => {
+  const v = L.bandView({ ...BASE, checks: { battery: true, pct96: false, unplugged: false }, now: { pct: 87 } });
+  assert.equal(v.checks[1].text, 'Charge to 96% or more (now 87%)');
+  const h = L.bandView({ ...BASE, checks: { battery: true, pct96: false, unplugged: false, chargeLimitHint: true }, now: { pct: 80 } });
+  assert.equal(h.checks[1].text, 'Charge to 96% or more (now 80%) · check the battery charge-limit setting');
+  assert.equal(L.bandView({ ...BASE, checks: { battery: false } }).checks[0].text, 'No battery found');
+});
+test('bandView: Countdown digits 3 → 2 → 1 from countdownEndsMs − nowMs', () => {
+  const at = (now) => L.bandView({ ...BASE, checks: { battery: true, pct96: true, unplugged: true }, countdownEndsMs: 4000, nowMs: now });
+  assert.equal(at(1000).mode, 'count');
+  assert.deepEqual([at(1000).digit, at(1500).digit, at(2100).digit, at(3200).digit, at(3999).digit, at(5000).digit], [3, 3, 2, 1, 1, 1]);
+});
+test('bandView: Logging / Paused / Done', () => {
+  assert.equal(L.bandView({ ...BASE, session: { status: 'running' } }).mode, 'logging');
+  const p = L.bandView({ ...BASE, session: { status: 'paused' } });
+  assert.equal(p.mode, 'paused'); assert.equal(p.sub, 'Unplug to continue');
+  const d = L.bandView({ ...BASE, session: { status: 'done' }, result: { reason: 'Ended at alarm', files: { html: 'C:/Desktop/x.html' } } });
+  assert.equal(d.mode, 'done'); assert.equal(d.sub, 'Ended at alarm · report saved to the Desktop');
+  const f = L.bandView({ ...BASE, session: { status: 'done' }, result: { reason: 'Stopped early', files: { html: null } } });
+  assert.equal(f.sub, 'Stopped early · report not saved to the Desktop');
+});
+test('mergeRows: an event and its own reading are one row with the reading\'s numbers (M1)', () => {
+  const samples = [{ rev: 1, ms: 100, pct: 98, mwh: 46000, rateMw: null, elapsedS: 0 }, { rev: 3, ms: 200, pct: 97, mwh: 45500, rateMw: 9000, elapsedS: 60 }];
+  const events = [{ rev: 2, ms: 100, type: 'unplugged', pct: 98, mwh: 46000, rateMw: null, elapsedS: 0, note: '' }];
+  const rows = L.mergeRows(samples, events);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map(r => r.type), ['reading', 'unplugged']);   // newest first
+  assert.equal(rows[1].mwh, 46000);
+});
+test('mergeRows: newest first, readings and events interleaved by time', () => {
+  const rows = L.mergeRows([{ rev: 1, ms: 10, pct: 99 }, { rev: 4, ms: 40, pct: 97 }], [{ rev: 2, ms: 20, type: 'saver_on' }, { rev: 3, ms: 30, type: 'gap', fromMs: 25, toMs: 30, note: 'slept' }]);
+  assert.deepEqual(rows.map(r => r.ms), [40, 30, 20, 10]);
+  assert.equal(rows[1].note, 'slept');
+});
+test('capRows: at most 20,000 DOM rows; the in-memory samples are never touched', () => {
+  const samples = Array.from({ length: 5 }, (_, i) => ({ ms: i }));
+  assert.equal(L.capRows(19990, 5), 0);
+  assert.equal(L.capRows(19998, 5), 3);
+  assert.equal(L.capRows(20000, 500), 500);
+  assert.equal(L.capRows(10, 30000), 10);   // never more than what's in the DOM
+  assert.equal(L.capRows(100, 5, 50), 55);
+  assert.equal(samples.length, 5);
+});

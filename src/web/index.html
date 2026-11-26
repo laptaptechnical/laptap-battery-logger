@@ -3,76 +3,98 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Battery Logger v14</title>
+<title>Battery Logger</title>
 <style>
-/* Finale-look desktop tool: header bar, one stats row, chart, result card, event table, actions. Fits 1024×600. */
+/* Full-height Finale-look tool: header, one state band (checklist / countdown / LOGGING), stats, chart, then the live
+   log fills the rest. Fits 1024×600. Matches prototype v6. */
 :root{
   --bg:#ffffff; --panel:#f7f9fb; --line:#dfe3e8; --fg:#16191d; --muted:#6b737c;
-  --accent:#0070d2; --accent-fg:#ffffff; --good:#2e844a; --warn:#b86e00; --bad:#c23934; --gap:#eef1f4;
+  --accent:#0070d2; --accent-fg:#ffffff; --good:#2e844a; --good-bg:#e8f5ec; --warn:#b86e00; --warn-bg:#fdf3e1;
+  --bad:#c23934; --gap:#eef1f4; --info-bg:#e8f1fb;
   --font:"Helvetica Neue",Helvetica,Arial,sans-serif; --mono:Consolas,"Cascadia Mono",monospace;
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#16191d; --panel:#1d2126; --line:#30363d; --fg:#e6e9ed; --muted:#9aa3ad;
-  --accent:#3d9bf0; --accent-fg:#0b1016; --good:#5cc27e; --warn:#e3a33a; --bad:#f0716b; --gap:#242a31; color-scheme:dark}}
+  --accent:#3d9bf0; --accent-fg:#0b1016; --good:#5cc27e; --good-bg:#16301f; --warn:#e3a33a; --warn-bg:#33270f;
+  --bad:#f0716b; --gap:#242a31; --info-bg:#132739; color-scheme:dark}}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
+html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.4 var(--font);font-variant-numeric:tabular-nums}
-.wrap{max-width:1100px;margin:0 auto;padding:12px 16px 24px;display:flex;flex-direction:column;gap:12px}
-header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:10px}
-.tile{width:30px;height:30px;border-radius:4px;background:var(--accent);display:grid;place-items:center}
-.tile svg{width:18px;height:18px}
+.wrap{height:100%;max-width:1200px;margin:0 auto;padding:10px 16px;display:flex;flex-direction:column;gap:10px;min-height:560px}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:8px}
+.tile{width:28px;height:28px;border-radius:4px;background:var(--accent);display:grid;place-items:center}
+.tile svg{width:17px;height:17px}
 h1{font-size:16px;font-weight:600;margin:0}
 .unit{color:var(--muted)}
 .spacer{flex:1}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.pill.off{color:var(--bad)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--good)}
 .dot.off{background:var(--bad)}
-.pill.off{color:var(--bad)}
-.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden}
-.stat{background:var(--bg);padding:10px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.ver{font-size:12px;color:var(--muted)}
+.ver.note{text-decoration:underline dotted;cursor:help}
+/* state band */
+.band{border:1px solid var(--line);border-radius:6px;padding:12px 14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;flex:none}
+.band.ready{background:var(--panel)}
+.band.count{background:var(--info-bg);border-color:var(--accent)}
+.band.logging{background:var(--good-bg);border-color:var(--good)}
+.band.paused{background:var(--warn-bg);border-color:var(--warn)}
+.band.done{background:var(--panel)}
+.checks{display:flex;gap:18px;flex-wrap:wrap;list-style:none;margin:0;padding:0}
+.checks li{display:flex;align-items:center;gap:6px}
+.ck{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--muted);display:grid;place-items:center;font-size:11px;color:transparent;flex:none}
+.checks li.ok .ck{background:var(--good);border-color:var(--good);color:#fff}
+.checks li.ok{color:var(--fg)} .checks li:not(.ok){color:var(--muted)}
+.big{font-size:20px;font-weight:700;letter-spacing:.02em;display:flex;align-items:center;gap:10px}
+.band.logging .big{color:var(--good)} .band.paused .big{color:var(--warn)} .band.count .big{color:var(--accent)} .band.done .big{color:var(--fg)}
+.pulse{width:12px;height:12px;border-radius:50%;background:var(--good)} /* static dot: no animation for an 8 h test (row 7) */
+.clockbig{font-size:20px;font-weight:600;color:var(--fg)}
+.sub{color:var(--muted)}
+.sound{color:var(--bad);font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden;flex:none}
+.stat{background:var(--bg);padding:8px 12px;display:flex;flex-direction:column;gap:1px;min-width:0}
 .stat .k{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
-.stat .v{font-size:22px;font-weight:600;display:flex;align-items:center;gap:8px}
+.stat .v{font-size:20px;font-weight:600;display:flex;align-items:center;gap:8px}
 .stat .s{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.batt{width:34px;height:16px;border:1.5px solid var(--fg);border-radius:3px;padding:1.5px;position:relative;flex:none}
-.batt::after{content:"";position:absolute;right:-4px;top:4px;width:2px;height:5px;background:var(--fg);border-radius:0 1px 1px 0}
+.batt{width:32px;height:15px;border:1.5px solid var(--fg);border-radius:3px;padding:1.5px;position:relative;flex:none}
+.batt::after{content:"";position:absolute;right:-4px;top:3.5px;width:2px;height:5px;background:var(--fg);border-radius:0 1px 1px 0}
 .batt i{display:block;height:100%;background:var(--accent);border-radius:1px}
 .batt.low i{background:var(--bad)} .batt.chg i{background:var(--good)}
-.chart{border:1px solid var(--line);border-radius:4px;padding:8px 8px 4px}
-.chart svg{width:100%;height:170px;display:block}
-.chart .legend{display:flex;gap:14px;font-size:11px;color:var(--muted);padding:0 4px 4px}
+.chart{border:1px solid var(--line);border-radius:4px;padding:6px 8px 2px;flex:none}
+.chart svg{width:100%;height:120px;display:block}
+.legend{display:flex;gap:14px;font-size:11px;color:var(--muted);padding:0 4px 2px}
 .sw{display:inline-block;width:10px;height:2px;vertical-align:middle;margin-right:4px}
-.tablebox{border:1px solid var(--line);border-radius:4px;overflow:auto;max-height:220px}
-table{border-collapse:collapse;width:100%;min-width:520px}
-th,td{height:22px;padding:0 10px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--line)}
-th{position:sticky;top:0;background:var(--panel);font-weight:600;font-size:12px;color:var(--muted)}
+/* live log fills the rest (E1) */
+.log{flex:1;min-height:180px;display:flex;flex-direction:column;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.loghead{display:flex;align-items:center;gap:10px;padding:0 10px;height:30px;flex:none;background:var(--panel);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+.loghead b{color:var(--fg)}
+.scroll{flex:1;overflow:auto;min-height:0;overflow-anchor:none;contain:strict}
+table{border-collapse:collapse;width:100%;min-width:560px;table-layout:fixed}
+th,td{height:22px;padding:0 10px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line)}
+th{position:sticky;top:0;background:var(--bg);font-weight:600;font-size:12px;color:var(--muted);z-index:1}
 td.n,th.n{text-align:right}
 tr.ev td{font-weight:600}
 tr.gap td{background:var(--gap);color:var(--muted)}
 tr.alarm td{color:var(--bad);font-weight:600}
-.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-button{font:inherit;height:28px;padding:0 14px;border-radius:4px;border:1px solid var(--line);background:var(--bg);color:var(--accent);cursor:pointer}
+tr.new td{animation:hl 1.2s ease-out}
+@keyframes hl{from{background:var(--info-bg)}}
+tr.older td{color:var(--muted);font-style:italic}
+.jump{font:inherit;font-size:12px;height:22px;padding:0 8px}
+button{font:inherit;height:28px;padding:0 14px;border-radius:4px;border:1px solid var(--line);background:var(--bg);color:var(--accent);cursor:pointer;white-space:nowrap}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
 button.danger{color:var(--bad)}
 button:disabled{opacity:.45;cursor:not-allowed}
 button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 label.f{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
-input[type=number]{font:inherit;width:56px;height:28px;padding:0 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
+input[type=number]{font:inherit;width:52px;height:26px;padding:0 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
 .confirm{display:inline-flex;gap:8px;align-items:center;color:var(--bad)}
-.report{border:1px solid var(--line);border-radius:4px}
-.report h2{font-size:14px;margin:0;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.kv{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0}
-.kv div{padding:8px 12px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;min-width:0}
-.kv div span:first-child{color:var(--muted)}
-/* Result shown: compact so the action bar stays on screen at 1024×600 */
-body.done .chart svg{height:110px} body.done .tablebox{max-height:112px} body.done .kv div{padding:5px 12px} body.done .report h2{padding:6px 12px} body.done .files{padding:5px 12px}
-body.done .bar{position:sticky;bottom:0;z-index:5;background:var(--bg);border-top:1px solid var(--line);padding:8px 0}
-.files.bad{color:var(--bad)}
-.files{padding:8px 12px;color:var(--muted);font-family:var(--mono);font-size:12px;word-break:break-all}
 .ov{position:fixed;inset:0;background:rgba(10,14,20,.45);display:grid;place-items:center;padding:16px;z-index:20}
-.box{background:var(--bg);border:1px solid var(--line);border-top:3px solid var(--bad);border-radius:6px;padding:18px 20px;width:min(360px,100%);display:flex;flex-direction:column;gap:10px}
+.box{background:var(--bg);border:1px solid var(--line);border-top:3px solid var(--bad);border-radius:6px;padding:18px 20px;width:min(380px,100%);display:flex;flex-direction:column;gap:10px}
 .box b{font-size:28px;color:var(--bad)}
-@media (max-width:720px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.kv{grid-template-columns:minmax(0,1fr)}}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+.toast{position:fixed;right:16px;top:12px;background:var(--fg);color:var(--bg);padding:6px 12px;border-radius:4px;font-size:12px;z-index:15}
+@media (max-width:720px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.wrap{height:auto}.log{min-height:320px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
@@ -83,45 +105,74 @@ body.done .bar{position:sticky;bottom:0;z-index:5;background:var(--bg);border-to
     <span class="unit" id="unit"></span>
     <span class="spacer"></span>
     <span class="pill" id="helper"><span class="dot"></span>Windows data</span>
+    <span class="ver" id="ver"></span>
   </header>
+
+  <!-- One band, five states: ready (checklist) · count (3.. 2.. 1..) · logging · paused · done. The exe decides. -->
+  <section class="band ready" id="band" aria-live="polite">
+    <div id="bReady" style="display:contents">
+      <ul class="checks" id="checks">
+        <li id="cBat"><span class="ck">✓</span><span id="cBatT">Battery found</span></li>
+        <li id="cPct"><span class="ck">✓</span><span id="cPctT">Charged to 96% or more</span></li>
+        <li id="cAc"><span class="ck">✓</span><span id="cAcT">Charger unplugged</span></li>
+      </ul>
+      <span class="spacer"></span>
+      <span class="confirm" id="readyMsg" hidden></span>
+      <button class="primary" id="startBtn" hidden>Start</button>
+    </div>
+    <div id="bCount" style="display:contents" hidden>
+      <span class="big"><span>All conditions are met, starting logging in <span id="cd">3</span>..</span></span>
+      <span class="spacer"></span>
+      <button id="cancelBtn">Cancel</button>
+    </div>
+    <div id="bLog" style="display:contents" hidden>
+      <span class="big"><span class="pulse" id="pulse"></span><span id="bigWord">LOGGING</span></span>
+      <span class="clockbig" id="elapsed">0:00:00</span>
+      <span class="sub" id="eta">Measuring…</span>
+      <span class="spacer"></span>
+      <label class="f" for="alarmPct">Alarm at <input type="number" id="alarmPct" min="10" max="50" value="15">%</label>
+      <button class="danger" id="stopBtn">Stop</button>
+      <span class="confirm" id="stopConfirm" hidden>End the test now? <button class="danger" id="stopYes">End test</button><button id="stopNo">Keep running</button></span>
+    </div>
+    <div id="bDone" style="display:contents" hidden>
+      <span class="big">Test finished</span>
+      <span class="sub" id="doneSub"></span>
+      <span class="spacer"></span>
+      <span class="sound" id="soundNote" hidden>Click anywhere to enable the alarm sound</span>
+      <span class="confirm" id="csvMsg" hidden></span>
+      <button id="csvBtn">Save CSV</button>
+      <button class="primary" id="newBtn">New test</button>
+    </div>
+  </section>
 
   <section class="stats" aria-label="Battery now">
     <div class="stat"><span class="k">Charge</span><span class="v"><span class="batt" id="battIcon"><i id="battFill" style="width:0%"></i></span><span id="pct">--%</span></span><span class="s" id="pctSub">n/a</span></div>
     <div class="stat"><span class="k">Health</span><span class="v" id="health">n/a</span><span class="s" id="healthSub">n/a</span></div>
     <div class="stat"><span class="k">Power</span><span class="v" id="watts">n/a</span><span class="s" id="wattsSub">n/a</span></div>
-    <div class="stat"><span class="k">Elapsed</span><span class="v" id="elapsed">0:00:00</span><span class="s" id="eta">Ready</span></div>
+    <div class="stat"><span class="k">Result</span><span class="v" id="resV">—</span><span class="s" id="resS">Shown when the test ends</span></div>
   </section>
 
   <section class="chart" aria-label="Charge over time">
     <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>Charge %</span><span><i class="sw" style="background:var(--warn)"></i>Watts</span><span><i class="sw" style="background:var(--gap);height:8px"></i>Gap</span></div>
-    <svg id="chart" viewBox="0 0 1000 170" preserveAspectRatio="none" role="img" aria-label="Charge and power over time"></svg>
+    <svg id="chart" viewBox="0 0 1000 120" preserveAspectRatio="none" role="img" aria-label="Charge and power over time"></svg>
   </section>
 
-  <section id="reportBox" class="report" hidden></section>
-
-  <section class="tablebox" aria-label="Log">
-    <table><thead><tr><th>Time</th><th>Event</th><th class="n">%</th><th class="n">Wh</th><th class="n">W</th><th class="n">Elapsed</th></tr></thead><tbody id="rows"></tbody></table>
+  <section class="log" aria-label="Log">
+    <div class="loghead"><b>Log</b><span id="rowCount">0 rows</span><span class="spacer"></span><button class="jump" id="jumpBtn" hidden>Newest ↑</button></div>
+    <div class="scroll" id="scroll">
+      <table>
+        <colgroup><col style="width:90px"><col><col style="width:60px"><col style="width:70px"><col style="width:60px"><col style="width:90px"></colgroup>
+        <thead><tr><th>Time</th><th>Event</th><th class="n">%</th><th class="n">Wh</th><th class="n">W</th><th class="n">Elapsed</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
   </section>
-
-  <div class="bar">
-    <button class="primary" id="startBtn">Start</button>
-    <span class="confirm" id="startMsg" hidden>Charge to at least 96% first.</span>
-    <button class="danger" id="stopBtn" disabled>Stop</button>
-    <span class="confirm" id="stopConfirm" hidden>End the test now? <button class="danger" id="stopYes">End test</button><button id="stopNo">Keep running</button></span>
-    <span class="spacer"></span>
-    <label class="f" for="alarmPct">Alarm at <input type="number" id="alarmPct" min="10" max="50" value="15">%</label>
-    <span class="confirm" id="csvMsg" hidden></span>
-    <button id="exportBtn">Save CSV</button>
-  </div>
 </div>
 
 <div class="ov" id="alarm" hidden role="alertdialog" aria-labelledby="alarmT">
-  <div class="box">
-    <b id="alarmPctV">15%</b>
-    <div id="alarmT">Plug in the charger. The test is done and the report is saved to the Desktop.</div>
-    <button class="primary" id="alarmOk">OK</button>
-  </div>
+  <div class="box"><b id="alarmPctV">15%</b><div id="alarmT">Plug in the charger. The test is done and the report is saved to the Desktop.</div><button class="primary" id="alarmOk">OK</button></div>
 </div>
+<div class="toast" id="toast" hidden></div>
 
 <!-- The one report template. The exe fills it (Report.cs) and so does browser-only mode (fillReport). -->
 <template id="report"><!-- Slots (api-contract.md; plain = escaped, *Html = raw): unitModel, unitSerial, computerName, date, startTime, endTime,
@@ -164,7 +215,7 @@ tr.gap td{background:#eef1f4;color:#6b737c}tr.alarm td{color:#c23934;font-weight
 <div class="chart">{{chartSvgHtml}}</div>
 <table class="ev"><thead><tr><th>Time</th><th>Event</th><th class="n">%</th><th class="n">Wh</th><th class="n">W</th><th class="n">Elapsed</th></tr></thead>{{eventRowsHtml}}</table>
 <div class="more">{{eventsMore}}</div>
-<div class="f">Battery Logger v14 · Windows data · {{version}}</div>
+<div class="f">Battery Logger v{{version}} · Windows data</div>
 </div></template>
 
 <script src="logic.js"></script>
@@ -174,18 +225,19 @@ tr.gap td{background:#eef1f4;color:#6b737c}tr.alarm td{color:#c23934;font-weight
 var L = window.LaptapLogic;
 var $ = function (id) { return document.getElementById(id); };
 var FILE = location.protocol === 'file:';
+var CAP = 20000;   // rows in the DOM (I12); the chart's samples and the CSV are never capped
 
-// ---- token: read from #t=, keep in memory, remove from the address bar ----
+// ---- token: read from #t=, kept for this window in sessionStorage (F5 keeps working), removed from the address bar ----
 var token = (location.hash.match(/[#&]t=([0-9a-f]+)/) || [])[1] || '';
 try {
-  if (token) sessionStorage.setItem('laptapBatteryToken', token);   // this window only; gone when it closes
+  if (token) sessionStorage.setItem('laptapBatteryToken', token);
   else if (!FILE) token = sessionStorage.getItem('laptapBatteryToken') || '';
 } catch (e) {}
 if (location.hash) history.replaceState(null, '', location.pathname + location.search);
 
-var st = { rev: 0, samples: [], events: [], snap: null, lastListed: null, sessionId: null, chartKey: null };
-var fails = 0, lost = false, lastHb = 0, pollTimer = null, dismissed = null, alarmPctIdle = 15;
-var audio = null, beepTimer = null, ackedId = null;
+var st = { rev: 0, samples: [], events: [], snap: null, sessionId: null, chartKey: null, domRows: 0, totalRows: 0, olderRow: null,
+  polledAt: 0, serverNow: 0, mode: null };
+var fails = 0, lost = false, lastHb = 0, pollTimer = null, tickTimer = null, audio = null, beepTimer = null, ackedId = null;
 
 function api(path, method, body) {
   if (FILE) return Local.request(path, method || 'GET', body);
@@ -195,18 +247,39 @@ function api(path, method, body) {
     .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
 }
 
-// ---- polling: 5 s visible, 30 s hidden; heartbeat every 60 s rides along. No 1-second timer. ----
+// ---- polling (E7): Ready/Countdown 1 s while visible; Logging/Paused 5 s visible, 30 s hidden; Done 30 s.
+//      Hidden in Ready/Countdown: no state polls (so no auto-start), only the 60 s heartbeat that keeps the exe alive.
+function cadence() {
+  var m = st.mode || 'ready';
+  if (m === 'ready' || m === 'count') return document.hidden ? null : 1000;
+  if (m === 'done') return 30000;
+  return document.hidden ? 30000 : 5000;
+}
+function heartbeat() {
+  if (Date.now() - lastHb < 60000) return Promise.resolve();
+  lastHb = Date.now();
+  return api('/api/heartbeat', 'POST').catch(function () {});
+}
+function schedule() {
+  clearTimeout(pollTimer);
+  if (lost) return;
+  var ms = cadence();
+  if (ms == null) pollTimer = setTimeout(function () { heartbeat().then(schedule); }, 60000);
+  else pollTimer = setTimeout(poll, ms);
+}
 function poll() {
   clearTimeout(pollTimer);
-  var p = Promise.resolve();
-  if (Date.now() - lastHb >= 60000) { lastHb = Date.now(); p = api('/api/heartbeat', 'POST').catch(function () {}); }
-  return p.then(function () { return api('/api/state?since=' + st.rev); })
+  return heartbeat()
+    .then(function () { return api('/api/state?since=' + st.rev); })
     .then(function (s) { fails = 0; apply(s); }, function () { if (++fails >= 3) loggerLost(); })
-    .then(function () { if (!lost) pollTimer = setTimeout(poll, document.hidden ? 30000 : 5000); });
+    .then(schedule);
 }
-document.addEventListener('visibilitychange', function () { if (!document.hidden && !lost) poll(); });
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) { tickOnce(true); clearTimeout(tickTimer); schedule(); }
+  else if (!lost) { poll(); startTick(); }
+});
 
-// ---- compare-before-write: nothing changed → nothing written to the DOM (F1) ----
+// ---- compare-before-write: nothing changed → nothing written to the DOM ----
 function setText(id, t) { var el = $(id); if (el.textContent !== t) el.textContent = t; }
 function setProp(id, k, v) { var el = $(id); if (el[k] !== v) el[k] = v; }
 function setStyle(id, k, v) { var el = $(id); if (el.style[k] !== v) el.style[k] = v; }
@@ -216,7 +289,7 @@ function loggerLost() {
   lost = true;
   setProp('helper', 'className', 'pill off');
   setHtml('helper', '<span class="dot off"></span>Logger stopped. Open Laptap Battery Logger again.');
-  ['startBtn', 'stopBtn', 'exportBtn', 'stopYes', 'alarmPct'].forEach(function (id) { setProp(id, 'disabled', true); });
+  ['startBtn', 'cancelBtn', 'stopBtn', 'csvBtn', 'newBtn', 'stopYes', 'alarmPct'].forEach(function (id) { setProp(id, 'disabled', true); });
 }
 
 // ---- formatting ----
@@ -226,11 +299,11 @@ function pad(n) { return (n < 10 ? '0' : '') + n; }
 function clock(ms) { var d = new Date(ms); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); }
 function pct(p) { return p == null ? 'n/a' : p + '%'; }
 
-// §7 table wording, made from the contract's event type + note.
-function eventLabel(e) {
+// §7 table wording from the event type + note.
+function rowLabel(e) {
   switch (e.type) {
+    case 'reading': return 'Reading';
     case 'start': return 'Test started';
-    case 'waiting_unplug': return 'Waiting for unplug';
     case 'unplugged': return 'Unplugged';
     case 'charger_in': return 'Charger plugged in · paused';
     case 'charger_out': return 'Unplugged · resumed';
@@ -246,135 +319,198 @@ function eventLabel(e) {
     default: return e.type;
   }
 }
-function eventKind(e) { return e.type === 'gap' ? 'gap' : (e.type === 'alarm' || e.type === 'report_failed' ? 'alarm' : 'ev'); }
-
-function activeSession(s) { return s && s.session && s.session.id !== dismissed ? s.session : null; }
-
-// Counted seconds: Σ segments (an open segment runs to now).
-function countedS(sess) {
-  var t = 0, now = Date.now();
-  (sess.segments || []).forEach(function (g) { t += ((g.endMs == null ? now : g.endMs) - g.startMs) / 1000; });
-  return Math.max(0, t);
+function rowKind(e) { return e.type === 'reading' ? '' : e.type === 'gap' ? 'gap' : (e.type === 'alarm' || e.type === 'report_failed') ? 'alarm' : 'ev'; }
+function rowHtml(r, live) {
+  return '<tr class="' + rowKind(r) + (live ? ' new' : '') + '"><td>' + clock(r.ms) + '</td><td>' + L.escapeHtml(rowLabel(r)) + '</td><td class="n">' +
+    (r.pct == null ? '' : r.pct) + '</td><td class="n">' + wh(r.mwh) + '</td><td class="n">' + w(r.rateMw) + '</td><td class="n">' +
+    L.fmtElapsed(r.elapsedS) + '</td></tr>';
 }
-function gapsOf(events) { return events.filter(function (e) { return e.type === 'gap' && e.fromMs != null; }).map(function (e) { return { fromMs: e.fromMs, toMs: e.toMs }; }); }
-function pausesOf(events) {
-  var out = [], cur = null;
-  events.forEach(function (e) {
-    if (e.type === 'charger_in') cur = { fromMs: e.ms, toMs: null };
-    else if (cur && (e.type === 'charger_out' || e.type === 'stop' || e.type === 'alarm')) { cur.toMs = e.ms; out.push(cur); cur = null; }
-  });
-  if (cur) out.push(cur);
-  return out;
+
+function resetLog() {
+  var el = $('rows'); el.__h = null; el.textContent = '';
+  st.samples = []; st.events = []; st.domRows = 0; st.totalRows = 0; st.olderRow = null; st.chartKey = null;
+  setText('rowCount', '0 rows'); setProp('jumpBtn', 'hidden', true);
 }
 
 function apply(s) {
-  if (st.snap && s.rev < st.rev) { st.rev = 0; st.samples = []; st.events = []; setHtml('rows', ''); st.lastListed = null; }
-  var sess = s.session;
-  if (sess && sess.id !== st.sessionId) { st.sessionId = sess.id; st.samples = []; st.events = []; setHtml('rows', ''); st.lastListed = null; }
-  var newRows = [];
-  (s.samples || []).forEach(function (x) {
-    st.samples.push(x);
-    if (st.lastListed == null || x.ms - st.lastListed >= 600000) { st.lastListed = x.ms; newRows.push({ rev: x.rev, ms: x.ms, label: 'Reading', kind: '', pct: x.pct, mwh: x.mwh, rateMw: x.rateMw, elapsedS: x.elapsedS }); }
-  });
-  (s.events || []).forEach(function (e) {
-    st.events.push(e);
-    newRows.push({ rev: e.rev, ms: e.ms, label: eventLabel(e), kind: eventKind(e), pct: e.pct, mwh: e.mwh, rateMw: e.rateMw, elapsedS: e.elapsedS });
-  });
-  newRows.sort(function (a, b) { return a.rev - b.rev; });
+  var sess = s.session, sid = sess ? sess.id : null;
+  var first = st.snap == null;
+  if (!first && s.rev < st.rev) { st.rev = 0; resetLog(); }
+  if (sid !== st.sessionId) { st.sessionId = sid; resetLog(); }
+  var newS = s.samples || [], newE = s.events || [];
+  var rebuild = st.domRows === 0 && (newS.length + newE.length) > 0 && (first || st.rev === 0);
+  newS.forEach(function (x) { st.samples.push(x); });
+  newE.forEach(function (e) { st.events.push(e); });
   st.rev = Math.max(st.rev, s.rev || 0);
   st.snap = s;
-  if (activeSession(s)) addRows(newRows);
+  st.polledAt = Date.now(); st.serverNow = s.nowMs || Date.now();
+  if (sess && (newS.length || newE.length)) insertRows(L.mergeRows(newS, newE), !rebuild);
   render(s);
 }
 
-function addRows(list) {
-  if (!list.length) return;
-  var html = '';
-  list.forEach(function (r) {
-    html = '<tr class="' + (r.kind || '') + '"><td>' + clock(r.ms) + '</td><td>' + L.escapeHtml(r.label) + '</td><td class="n">' +
-      (r.pct == null ? '' : r.pct) + '</td><td class="n">' + wh(r.mwh) + '</td><td class="n">' + w(r.rateMw) + '</td><td class="n">' +
-      L.fmtElapsed(r.elapsedS) + '</td></tr>' + html;
-  });
-  var el = $('rows'); el.__h = null;
-  el.insertAdjacentHTML('afterbegin', html);
+// Live log (E1, I12): new rows go on top in one fragment; existing rows are never touched. If the reader has
+// scrolled away from the top, the inserted height is added to scrollTop (overflow-anchor is off, so only one mechanism).
+function insertRows(rows, live) {
+  if (!rows.length) return;
+  if (!live && rows.length > 500) {   // rebuild after a reload: 500 rows per frame, no highlight
+    var chunks = [];
+    for (var i = rows.length; i > 0; i -= 500) chunks.push(rows.slice(Math.max(0, i - 500), i));   // oldest chunk first
+    (function next() { var c = chunks.shift(); if (!c) return; insertRows(c, false); requestAnimationFrame(next); })();
+    return;
+  }
+  var sc = $('scroll'), atTop = sc.scrollTop < 4, before = sc.scrollHeight;
+  var tpl = document.createElement('tbody');
+  tpl.innerHTML = rows.map(function (r) { return rowHtml(r, live && !reducedMotion()); }).join('');
+  var frag = document.createDocumentFragment();
+  while (tpl.firstChild) frag.appendChild(tpl.firstChild);
+  var tb = $('rows'); tb.__h = null;
+  tb.insertBefore(frag, tb.firstChild);
+  st.domRows += rows.length; st.totalRows += rows.length;
+  var drop = L.capRows(st.domRows - rows.length, rows.length, CAP);
+  if (drop > 0) {
+    for (var d = 0; d < drop; d++) { var last = st.olderRow ? st.olderRow.previousElementSibling : tb.lastElementChild; if (last) tb.removeChild(last); }
+    st.domRows -= drop;
+    if (!st.olderRow) {
+      st.olderRow = document.createElement('tr'); st.olderRow.className = 'older';
+      st.olderRow.innerHTML = '<td colspan="6">Older rows are in the CSV</td>';
+      tb.appendChild(st.olderRow);
+    }
+  }
+  if (!atTop) { sc.scrollTop += sc.scrollHeight - before; setProp('jumpBtn', 'hidden', false); }
+  setText('rowCount', st.totalRows + (st.totalRows === 1 ? ' row' : ' rows'));
 }
+function reducedMotion() { return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+$('jumpBtn').onclick = function () { $('scroll').scrollTop = 0; setProp('jumpBtn', 'hidden', true); };
+$('scroll').addEventListener('scroll', function () { if ($('scroll').scrollTop < 4) setProp('jumpBtn', 'hidden', true); }, { passive: true });
 
-// Live health = logic.health over Σ batteries (contract); shown capped at 100.
+// Live health = logic.health over Σ batteries; shown capped at 100, one decimal.
 function healthOf(bats) {
   var full = 0, design = 0, ok = bats.length > 0;
   bats.forEach(function (b) { if (b.fullMwh == null || b.designMwh == null) ok = false; else { full += b.fullMwh; design += b.designMwh; } });
   if (!ok) return { shown: null, full: null, design: null };
   return { shown: L.health(full, design).shown, full: full, design: design };
 }
-function cyclesText(bats) {   // F2: one value per battery, "n/a" only where a battery reports none
+function cyclesText(bats) {
   if (!bats.length) return 'n/a';
   return bats.map(function (b) { return b.cycles == null ? 'n/a' : String(b.cycles); }).join(' / ');
 }
 
+// Counted seconds now: Σ segments, an open one running to the server's now plus local drift since the poll.
+function countedNow() {
+  var sess = st.snap && st.snap.session;
+  if (!sess) return 0;
+  var now = st.serverNow + (Date.now() - st.polledAt), t = 0;
+  (sess.segments || []).forEach(function (g) { t += ((g.endMs == null ? (sess.status === 'running' ? now : g.startMs) : g.endMs) - g.startMs) / 1000; });
+  return Math.max(0, t);
+}
+
 function render(s) {
-  var n = s.now || {}, sess = activeSession(s), bats = s.batteries || [];
-  var u = s.unit || {};
+  var n = s.now || {}, sess = s.session, bats = s.batteries || [], app = s.app || {}, u = s.unit || {};
   setText('unit', [u.model || u.maker || '', u.serial || ''].filter(Boolean).join(' · '));
   if (!lost) {
     setProp('helper', 'className', FILE ? 'pill off' : 'pill');
     setHtml('helper', FILE ? '<span class="dot off"></span>Browser only · no health' : '<span class="dot"></span>Windows data');
   }
-  var alarmPct = sess ? sess.alarmPct : alarmPctIdle;
-  if (document.activeElement !== $('alarmPct') && $('alarmPct').value !== String(alarmPct)) $('alarmPct').value = alarmPct;
+  // Version + update note (tooltip only) + "Updated to vX" once per version (M5)
+  setText('ver', app.version ? 'v' + app.version : '');
+  setProp('ver', 'title', app.updateNote || '');
+  setProp('ver', 'className', app.updateNote ? 'ver note' : 'ver');
+  if (app.updatedFrom && app.version) {
+    var seen = null; try { seen = sessionStorage.getItem('laptapToastShown'); } catch (e) {}
+    if (seen !== app.version) {
+      try { sessionStorage.setItem('laptapToastShown', app.version); } catch (e) {}
+      $('toast').textContent = 'Updated to v' + app.version; $('toast').hidden = false;
+      setTimeout(function () { $('toast').hidden = true; }, 6000);
+    }
+  }
 
-  // Charge
+  // The band (plan §3)
+  var b = L.bandView(s);
+  var prevMode = st.mode; st.mode = b.mode;
+  setProp('band', 'className', 'band ' + b.mode);
+  setProp('bReady', 'hidden', b.mode !== 'ready');
+  setProp('bCount', 'hidden', b.mode !== 'count');
+  setProp('bLog', 'hidden', !(b.mode === 'logging' || b.mode === 'paused'));
+  setProp('bDone', 'hidden', b.mode !== 'done');
+  if (b.mode === 'ready' || b.mode === 'count') {
+    var ids = { battery: 'cBat', pct96: 'cPct', unplugged: 'cAc' };
+    b.checks.forEach(function (c) { setProp(ids[c.id], 'className', c.ok ? 'ok' : ''); setText(ids[c.id] + 'T', c.text); });
+    setProp('startBtn', 'hidden', !b.showStart);
+    if (b.mode === 'count') setText('cd', String(countdownDigit()));
+  }
+  if (b.mode === 'logging' || b.mode === 'paused') {
+    setText('bigWord', b.mode === 'paused' ? 'PAUSED · charger plugged in' : 'LOGGING');
+    setProp('pulse', 'hidden', b.mode === 'paused');
+    if (!document.hidden) tickOnce(false);   // hidden: h:mm is written once on hide, never by a poll (E7)
+    var eta = 'Unplug to continue';
+    if (b.mode === 'logging') {
+      var pts = st.samples.filter(function (x) { return !x.ac && x.pct != null; }).map(function (x) { return { e: x.elapsedS, pct: x.pct }; });
+      var left = pts.length >= 5 ? L.etaToAlarm(pts, sess.alarmPct) : null;
+      eta = left == null ? 'Measuring…' : 'About ' + L.fmtHm(left) + ' to alarm';
+    }
+    setText('eta', eta);
+    if (document.activeElement !== $('alarmPct') && $('alarmPct').value !== String(sess.alarmPct)) $('alarmPct').value = sess.alarmPct;
+    if (!lost) setProp('stopBtn', 'disabled', false);
+  } else { setProp('stopConfirm', 'hidden', true); setProp('stopBtn', 'hidden', false); }
+  if (b.mode === 'done') setText('doneSub', b.sub);
+  if (prevMode !== b.mode) { setProp('readyMsg', 'hidden', true); setProp('csvMsg', 'hidden', true); startTick(); }
+
+  // Stats
+  var alarmPct = sess ? sess.alarmPct : 15;
   setText('pct', n.pct == null ? '--%' : n.pct + '%');
   setStyle('battFill', 'width', (n.pct || 0) + '%');
   setProp('battIcon', 'className', 'batt' + (n.ac ? ' chg' : (n.pct != null && n.pct <= alarmPct ? ' low' : '')));
   setText('pctSub', n.mwh != null && n.fullMwh != null ? wh(n.mwh) + ' of ' + wh(n.fullMwh) + ' Wh' : (n.mwh != null ? wh(n.mwh) + ' Wh' : 'n/a'));
-  // Health (number only, D13)
   var h = healthOf(bats);
   setText('health', h.shown == null ? 'n/a' : h.shown.toFixed(1) + '%');
   setText('healthSub', h.full != null ? wh(h.full) + ' / ' + wh(h.design) + ' Wh design · cycles ' + cyclesText(bats) : 'n/a');
-  // Power (bug 13)
   setText('watts', n.ac ? 'On AC' : (n.rateMw != null ? w(n.rateMw) + ' W' : 'n/a'));
   setText('wattsSub', n.pct == null && n.ac == null ? 'n/a' : L.powerState(!!n.ac, !!n.charging, n.pct));
-  // Elapsed + ETA
-  var el = 0, eta = 'Ready';
-  if (sess) {
-    el = countedS(sess);
-    if (sess.status === 'waiting') eta = 'Waiting for unplug';
-    else if (sess.status === 'paused') eta = 'Paused · charger connected';
-    else if (sess.status === 'running') {
-      var pts = st.samples.filter(function (x) { return !x.ac && x.pct != null; }).map(function (x) { return { e: x.elapsedS, pct: x.pct }; });
-      var left = pts.length >= 5 ? L.etaToAlarm(pts, alarmPct) : null;
-      eta = left == null ? 'Measuring…' : 'About ' + L.fmtHm(left) + ' to alarm';
-    } else eta = s.result ? s.result.reason : '';
-  }
-  setText('elapsed', L.fmtElapsed(el));
-  setText('eta', eta);
-
-  var running = !!(sess && sess.status !== 'done');
-  if (!lost) { setProp('startBtn', 'disabled', running); setProp('stopBtn', 'disabled', !running); }
-  setText('startBtn', sess && sess.status === 'done' ? 'New test' : 'Start');
-  if (!running) { setProp('stopConfirm', 'hidden', true); setProp('stopBtn', 'hidden', false); }
+  var r = sess && sess.status === 'done' ? s.result : null;
+  setText('resV', r ? L.fmtHm(r.runtimeS) : '—');
+  setText('resS', r ? r.startEnd + (r.estFullS != null ? ' · est. 100→0% ' + L.fmtHm(r.estFullS) : '') +
+    (r.healthPct != null ? ' · health ' + Math.min(100, r.healthPct).toFixed(1) + '%' : '') : 'Shown when the test ends');
 
   var key = (sess ? sess.id + ':' + sess.status + ':' + (sess.segments || []).length : '-') + ':' + st.samples.length + ':' + st.events.length + ':' + alarmPct;
   if (key !== st.chartKey) { st.chartKey = key; drawChart(sess, alarmPct); }
-  renderResult(sess ? s.result : null);
   renderAlarm(s, sess);
+}
+
+function countdownDigit() {
+  var s = st.snap;
+  if (!s || s.countdownEndsMs == null) return 3;
+  var now = st.serverNow + (Date.now() - st.polledAt);
+  return Math.max(1, Math.min(3, Math.ceil((s.countdownEndsMs - now) / 1000)));
+}
+
+// The 1 s tick (E7): only while visible, only in Logging (elapsed h:mm:ss) or Countdown (digit). Hidden → h:mm once.
+function tickOnce(hidden) {
+  var m = st.mode;
+  if (m === 'logging' || m === 'paused') {
+    var t = countedNow();
+    setText('elapsed', hidden ? L.fmtHm(t) : L.fmtElapsed(t));
+  } else if (m === 'count') setText('cd', String(countdownDigit()));
+}
+function startTick() {
+  clearTimeout(tickTimer);
+  if (document.hidden || !(st.mode === 'logging' || st.mode === 'count')) return;
+  tickTimer = setTimeout(function () { tickOnce(false); startTick(); }, 1000);
 }
 
 // ---- chart: x = wall time since the clock started, so gaps and pauses show as real spans ----
 var VARS = { line: 'var(--line)', muted: 'var(--muted)', warn: 'var(--warn)', gap: 'var(--gap)', bad: 'var(--bad)', accent: 'var(--accent)' };
 var HEX = { line: '#dfe3e8', muted: '#6b737c', warn: '#b86e00', gap: '#eef1f4', bad: '#c23934', accent: '#0070d2' };
-// view = { t0, gaps: [{fromMs,toMs}], pauses: [{fromMs,toMs}] }
 function chartSvg(samples, view, alarmPct, c, W, H) {
-  var Lm = 34, R = 34, T = 8, B = 20, t0 = view ? view.t0 : 0;
+  var Lm = 30, R = 30, T = 6, B = 16, t0 = view ? view.t0 : 0;
   var d = samples.filter(function (x) { return x.pct != null && x.ms >= t0; });
   var tmax = Math.max(3600 * 4, d.length ? (d[d.length - 1].ms - t0) / 1000 : 0);
   var x = function (t) { return Lm + Math.max(0, t) / tmax * (W - Lm - R); }, y = function (p) { return T + (1 - p / 100) * (H - T - B); };
   var maxW = 20; d.forEach(function (r) { if (!r.ac && r.rateMw != null && r.rateMw / 1000 > maxW) maxW = Math.ceil(r.rateMw / 10000) * 10; });
   var yw = function (v) { return T + (1 - v / maxW) * (H - T - B); };
   var g = '<defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="' + c.muted + '" stroke-width="2"/></pattern></defs>';
-  [0, 25, 50, 75, 100].forEach(function (p) { g += '<line x1="' + Lm + '" x2="' + (W - R) + '" y1="' + y(p) + '" y2="' + y(p) + '" stroke="' + c.line + '" stroke-width="1"/><text x="' + (Lm - 6) + '" y="' + (y(p) + 4) + '" font-size="10" text-anchor="end" fill="' + c.muted + '">' + p + '</text>'; });
-  [0, maxW / 2, maxW].forEach(function (v) { g += '<text x="' + (W - R + 6) + '" y="' + (yw(v) + 4) + '" font-size="10" fill="' + c.warn + '">' + v + 'W</text>'; });
-  for (var hh = 0; hh <= tmax / 3600; hh += tmax > 43200 ? 2 : 1) g += '<text x="' + x(hh * 3600) + '" y="' + (H - 5) + '" font-size="10" text-anchor="middle" fill="' + c.muted + '">' + hh + 'h</text>';
+  [0, 50, 100].forEach(function (p) { g += '<line x1="' + Lm + '" x2="' + (W - R) + '" y1="' + y(p) + '" y2="' + y(p) + '" stroke="' + c.line + '" stroke-width="1"/><text x="' + (Lm - 6) + '" y="' + (y(p) + 4) + '" font-size="10" text-anchor="end" fill="' + c.muted + '">' + p + '</text>'; });
+  [0, maxW].forEach(function (v) { g += '<text x="' + (W - R + 6) + '" y="' + (yw(v) + 4) + '" font-size="10" fill="' + c.warn + '">' + v + 'W</text>'; });
+  for (var hh = 0; hh <= tmax / 3600; hh += tmax > 43200 ? 2 : 1) g += '<text x="' + x(hh * 3600) + '" y="' + (H - 3) + '" font-size="10" text-anchor="middle" fill="' + c.muted + '">' + hh + 'h</text>';
   if (view) {
     view.gaps.forEach(function (gp) { g += '<rect x="' + x((gp.fromMs - t0) / 1000) + '" y="' + T + '" width="' + Math.max(2, x((gp.toMs - t0) / 1000) - x((gp.fromMs - t0) / 1000)) + '" height="' + (H - T - B) + '" fill="' + c.gap + '"/>'; });
     view.pauses.forEach(function (pp) { var to = pp.toMs || (d.length ? d[d.length - 1].ms : pp.fromMs); g += '<rect x="' + x((pp.fromMs - t0) / 1000) + '" y="' + T + '" width="' + Math.max(2, x((to - t0) / 1000) - x((pp.fromMs - t0) / 1000)) + '" height="' + (H - T - B) + '" fill="url(#hatch)" opacity=".5"/>'; });
@@ -386,9 +522,18 @@ function chartSvg(samples, view, alarmPct, c, W, H) {
     var pts = d.map(function (r) { return x((r.ms - t0) / 1000) + ',' + y(r.pct); });
     g += '<path d="M' + x((d[0].ms - t0) / 1000) + ',' + y(0) + ' L' + pts.join(' L') + ' L' + x((d[d.length - 1].ms - t0) / 1000) + ',' + y(0) + ' Z" fill="' + c.accent + '" opacity=".08"/>';
     g += '<polyline fill="none" stroke="' + c.accent + '" stroke-width="2" points="' + pts.join(' ') + '"/>';
-    var e = d[d.length - 1]; g += '<circle cx="' + x((e.ms - t0) / 1000) + '" cy="' + y(e.pct) + '" r="3.5" fill="' + c.accent + '"/>';
   }
   return g;
+}
+function gapsOf(events) { return events.filter(function (e) { return e.type === 'gap' && e.fromMs != null; }).map(function (e) { return { fromMs: e.fromMs, toMs: e.toMs }; }); }
+function pausesOf(events) {
+  var out = [], cur = null;
+  events.forEach(function (e) {
+    if (e.type === 'charger_in') cur = { fromMs: e.ms, toMs: null };
+    else if (cur && (e.type === 'charger_out' || e.type === 'stop' || e.type === 'alarm')) { cur.toMs = e.ms; out.push(cur); cur = null; }
+  });
+  if (cur) out.push(cur);
+  return out;
 }
 function viewOf(sess, events) {
   if (!sess) return null;
@@ -396,45 +541,21 @@ function viewOf(sess, events) {
   return { t0: segs.length ? segs[0].startMs : sess.startedMs, gaps: gapsOf(events), pauses: pausesOf(events) };
 }
 function drawChart(sess, alarmPct) {
-  $('chart').innerHTML = chartSvg(sess ? st.samples : [], viewOf(sess, st.events), alarmPct || 15, VARS, 1000, 170);
+  $('chart').innerHTML = chartSvg(sess ? st.samples : [], viewOf(sess, st.events), alarmPct || 15, VARS, 1000, 120);
 }
 
-// ---- result card = the report's summary block + the saved file paths ----
-var resultKey = null;
-function renderResult(r) {
-  var box = $('reportBox');
-  var done = !!r; if (document.body.classList.contains('done') !== done) document.body.classList.toggle('done', done);
-  if (!r) { setProp('reportBox', 'hidden', true); resultKey = null; return; }
-  var key = JSON.stringify(r);
-  if (key === resultKey) return;
-  resultKey = key;
-  var hp = r.healthPct == null ? 'n/a' : Math.min(100, r.healthPct).toFixed(1) + '%';
-  var bats = (st.snap && st.snap.batteries) || [];
-  var kv = [['Runtime', L.fmtHm(r.runtimeS) + ' (' + r.startEnd + ')'], ['est. 100→0%', r.estFullS == null ? 'n/a' : L.fmtHm(r.estFullS)],
-    ['Average draw', r.avgW == null ? 'n/a' : r.avgW.toFixed(1) + ' W'], ['Health', hp], ['Cycles', cyclesText(bats)],
-    ['Gaps', r.gapCount ? r.gapCount + ' · ' + L.fmtHm(r.gapS) + ' not counted' : 'None']];
-  if (r.estFullEnergyS != null) kv.splice(2, 0, ['Energy method', L.fmtHm(r.estFullEnergyS)]);
-  kv.push(['Min / max', r.minW != null && r.maxW != null ? r.minW.toFixed(1) + ' / ' + r.maxW.toFixed(1) + ' W' : 'n/a']);
-  kv.push(['Battery saver', r.saver || 'n/a']);
-  var fc = r.fullChangedMwh;   // M7: both full values when the gauge re-learned during the run
-  if (fc && fc.from != null && fc.to != null) kv.push(['Full charge', wh(fc.from) + ' → ' + wh(fc.to) + ' Wh (re-learned)']);
-  var f = r.files || {};
-  var files = [f.html, f.csv].filter(Boolean).map(L.escapeHtml).join(' · ');
-  box.innerHTML = '<h2>Result<span class="spacer"></span><span class="unit">' + L.escapeHtml(r.reason || '') + '</span></h2><div class="kv">' +
-    kv.map(function (p) { return '<div><span>' + p[0] + '</span><span>' + L.escapeHtml(p[1] == null ? 'n/a' : p[1]) + '</span></div>'; }).join('') +
-    '</div>' + (files ? '<div class="files">Saved to Desktop: ' + files + '</div>'
-      : '<div class="files bad">Report not saved to the Desktop. The data is kept in %LOCALAPPDATA%\\LaptapBatteryLogger.</div>');
-  box.hidden = false;
-}
-
-// ---- alarm: one AudioContext, unlocked in the Start click (bug 6); soft sine beeps until OK ----
+// ---- alarm: one AudioContext. Edge is started with autoplay allowed (Program.cs), so it should run without a
+//      click; if it is still suspended when the alarm fires, the band asks for a click (M6: test 5 records it). ----
 function unlockAudio() {
   try {
     if (!audio) { var AC = window.AudioContext || window.webkitAudioContext; if (AC) audio = new AC(); }
     if (audio && audio.state === 'suspended') audio.resume();
   } catch (e) { audio = null; }
 }
-document.addEventListener('click', function () { if (audio && audio.state === 'suspended') audio.resume(); }, true);
+document.addEventListener('click', function () {
+  if (audio && audio.state === 'suspended') audio.resume();
+  if (audio && audio.state !== 'suspended') setProp('soundNote', 'hidden', true);
+}, true);
 function beep() {
   if (!audio) return;
   var t = audio.currentTime;
@@ -452,7 +573,8 @@ function renderAlarm(s, sess) {
     $('alarmPctV').textContent = (r.endPct != null ? r.endPct : sess.alarmPct) + '%';
     $('alarmT').textContent = r.files && r.files.html ? 'Plug in the charger. The test is done and the report is saved to the Desktop.'
       : 'Plug in the charger. The test is done, but the report could not be saved to the Desktop.';
-    unlockAudio();   // a window the exe re-opened at alarm time has had no click; the exe starts Edge with autoplay allowed
+    unlockAudio();
+    setProp('soundNote', 'hidden', !(audio && audio.state === 'suspended'));
     $('alarm').hidden = false;
     beep(); clearInterval(beepTimer); beepTimer = setInterval(beep, 4000);
   } else if (!on && !$('alarm').hidden) { $('alarm').hidden = true; clearInterval(beepTimer); beepTimer = null; }
@@ -464,51 +586,44 @@ $('alarmOk').onclick = function () {
   api('/api/ack-alarm', 'POST').catch(function () {});
 };
 
-// ---- controls ----
-$('startBtn').onclick = function () {
-  var sess = st.snap && activeSession(st.snap);
-  if (sess && sess.status === 'done') {   // New test: clear the view; the next Start makes a new session
-    dismissed = sess.id; setHtml('rows', ''); st.samples = []; st.events = []; st.lastListed = null;
-    render(st.snap); return;
-  }
+// ---- controls. Any {ok:false}: show it, re-poll and render from /api/state; never assume a state (I10). ----
+function command(path, body, msgId) {
   unlockAudio();
-  $('startBtn').disabled = true;
-  api('/api/start', 'POST').then(function (r) {
-    if (!r.ok) { $('startMsg').textContent = r.error || 'Charge to at least 96% first.'; $('startMsg').hidden = false; $('startBtn').disabled = false; }
-    else { $('startMsg').hidden = true; dismissed = null; }
-    return poll();
-  }, function () { $('startBtn').disabled = false; });
-};
+  return api(path, 'POST', body).then(function (r) {
+    if (r && r.ok === false && msgId) { $(msgId).textContent = r.error || 'Not now.'; $(msgId).hidden = false; }
+    return poll().then(function () { return r; });
+  }, function () { return poll(); });
+}
+$('startBtn').onclick = function () { command('/api/arm', null, 'readyMsg'); };
+$('cancelBtn').onclick = function () { command('/api/cancel', null, 'readyMsg'); };
+$('newBtn').onclick = function () { command('/api/new', null, 'csvMsg'); };
 $('stopBtn').onclick = function () { $('stopBtn').hidden = true; $('stopConfirm').hidden = false; };
 $('stopNo').onclick = function () { $('stopBtn').hidden = false; $('stopConfirm').hidden = true; };
-$('stopYes').onclick = function () {
-  $('stopBtn').hidden = false; $('stopConfirm').hidden = true;
-  api('/api/stop', 'POST').then(poll, function () {});
-};
+$('stopYes').onclick = function () { $('stopBtn').hidden = false; $('stopConfirm').hidden = true; command('/api/stop', null, null); };
 $('alarmPct').onchange = function () {
   var v = parseInt($('alarmPct').value, 10);
-  api('/api/alarm-pct', 'POST', { pct: v }).then(function (r) {
-    if (r.ok) alarmPctIdle = v;
-    else { var sess = st.snap && activeSession(st.snap); $('alarmPct').value = sess ? sess.alarmPct : alarmPctIdle; }
-    return poll();
-  }, function () {});
+  command('/api/alarm-pct', { pct: v }, null).then(function (r) {
+    var sess = st.snap && st.snap.session;
+    if (r && r.ok === false && sess) $('alarmPct').value = sess.alarmPct;
+  });
 };
-$('exportBtn').onclick = function () {
+$('csvBtn').onclick = function () {
   api('/api/save-csv', 'POST').then(function (r) {
     if (!r.ok) { $('csvMsg').textContent = r.error || 'Could not save to the Desktop.'; $('csvMsg').hidden = false; return; }
     $('csvMsg').hidden = true;
-    setText('exportBtn', 'Saved to Desktop');
-    setTimeout(function () { setText('exportBtn', 'Save CSV'); }, 1500);
+    setText('csvBtn', 'Saved to Desktop');
+    setTimeout(function () { setText('csvBtn', 'Save CSV'); }, 1500);
   }, function () {});
 };
 
 // =====================================================================================================
 // Browser-only mode (developer fallback on file:// only; staff never get this file). Same rules, small:
-// getBattery() with .catch, null until real, 96% rule, IndexedDB "laptapBattery", reload restore, Wake Lock,
-// the embedded template for the downloads. Never reads or writes the v13 key. Answers in the contract shapes.
+// getBattery() with .catch, null until real, the same checklist / countdown / 96% rule, IndexedDB "laptapBattery",
+// reload restore, Wake Lock, the embedded template for the downloads. Never touches the v13 key. Contract shapes.
 // =====================================================================================================
 var Local = (function () {
   var bat = null, failed = false, rev = 0, S = null, samples = [], alarmPct = 15, timer = null, lock = null, db = null, ready;
+  var armed = true, cdEnds = null, latchPct = null;
   function now() { return Date.now(); }
   function pctNow() { return bat ? Math.round(bat.level * 100) : null; }
   function counted(t) { var s = L.countedTime(S.segments); if (S.open) s += (t - S.open.startMs) / 1000; return s; }
@@ -555,6 +670,25 @@ var Local = (function () {
   function closeSeg(t, p) { if (!S.open) return; S.open.endMs = t; S.open.endPct = p; S.open.endMwh = null; S.segments.push(S.open); S.open = null; }
   function active() { return S && S.status !== 'done'; }
 
+  function checks() {
+    var p = pctNow(), plugged = bat ? bat.charging : true;
+    return { battery: !!bat, unplugged: !!bat && !plugged, pct96: !!bat && (plugged ? L.canStart(p) : L.canStart(latchPct != null ? latchPct : p)), chargeLimitHint: false };
+  }
+  // The countdown runs on polls (1 s while visible); hidden → no polls → no auto-start, as in the exe.
+  function flow() {
+    if (S) { cdEnds = null; return; }
+    var c = checks(), all = c.battery && c.pct96 && c.unplugged;
+    if (cdEnds != null) { if (!all || !armed) cdEnds = null; else if (now() >= cdEnds) { cdEnds = null; startTest(); } }
+    else if (armed && all && !document.hidden) cdEnds = now() + 3000;
+  }
+  function startTest() {
+    S = { id: 'b' + now(), status: 'running', startedMs: now(), alarmPct: alarmPct, segments: [], open: null, gaps: [], pauses: [], events: [], lastMs: null, lastPct: null };
+    samples = [];
+    var x = sample('start');
+    S.startPct = x.pct; openSeg(x); event('start', x);
+    wake(); save(); schedule();
+  }
+
   function schedule() {
     clearTimeout(timer);
     if (!active()) return;
@@ -577,6 +711,7 @@ var Local = (function () {
     if (S.status === 'running' && bat && !bat.charging && p != null && p <= S.alarmPct) end('alarm');
   }
   function onCharging() {
+    if (!S) { latchPct = bat.charging ? null : pctNow(); return; }
     if (!active()) return;
     var x = sample(bat.charging ? 'charger_in' : 'charger_out');
     if (bat.charging && S.status === 'running') {
@@ -585,8 +720,6 @@ var Local = (function () {
     } else if (!bat.charging && S.status === 'paused') {
       var p = S.pauses[S.pauses.length - 1]; if (p && !p.toMs) p.toMs = x.ms;
       S.status = 'running'; openSeg(x); event('charger_out', x);
-    } else if (!bat.charging && S.status === 'waiting') {
-      S.status = 'running'; S.waitingSinceMs = null; S.startPct = x.pct; openSeg(x); event('unplugged', x);
     }
     save(); schedule();
   }
@@ -614,10 +747,10 @@ var Local = (function () {
   function csvText() {
     var rows = ['time,elapsed_s,event,windows_pct,remaining_mwh,full_mwh,rate_mw,rate_src,voltage_mv,ac,saver,b0_mwh,b1_mwh,note'];
     var all = samples.map(function (x) { return { rev: x.rev, row: [L.isoLocal(x.ms), x.elapsedS, x.csvEvent || 'reading', x.pct, '', '', '', '', '', x.ac ? 1 : 0, 0, '', '', ''] }; })
-      .concat(S.events.map(function (e) { return { rev: e.rev, row: [L.isoLocal(e.ms), e.elapsedS, e.type, e.pct, '', '', '', '', '', '', '', '', '', eventLabel(e)] }; }));
+      .concat(S.events.map(function (e) { return { rev: e.rev, row: [L.isoLocal(e.ms), e.elapsedS, e.type, e.pct, '', '', '', '', '', '', '', '', '', rowLabel(e)] }; }));
     all.sort(function (a, b) { return a.rev - b.rev; });
     all.forEach(function (r) { rows.push(L.csvRow(r.row)); });
-    return '﻿' + rows.join('\r\n') + '\r\n';
+    return '\ufeff' + rows.join('\r\n') + '\r\n';
   }
   function t0() { return S.segments.length ? S.segments[0].startMs : (S.open ? S.open.startMs : S.startedMs); }
   function baseName() { var d = new Date(t0()); return 'Battery UNKNOWN ' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + pad(d.getMinutes()); }
@@ -640,9 +773,9 @@ var Local = (function () {
       estFullEnergy: 'n/a', avgW: 'n/a', minW: 'n/a', maxW: 'n/a', healthPct: 'n/a', batteryRowsHtml: '',
       gapsPauses: (r.gapCount ? r.gapCount + (r.gapCount === 1 ? ' gap · ' : ' gaps · ') + L.fmtHm(r.gapS) + ' (unknown)' : '') +
         (r.pauseCount ? (r.gapCount ? ' · ' : '') + r.pauseCount + (r.pauseCount === 1 ? ' pause · ' : ' pauses · ') + L.fmtHm(r.pauseS) : '') || 'None',
-      saver: 'n/a', brightness: 'n/a', plan: 'n/a', windows: 'n/a', alarmNote: S.alarm && !S.alarmAck ? 'Alarm not acknowledged' : '', version: '14.0.0',
+      saver: 'n/a', brightness: 'n/a', plan: 'n/a', windows: 'n/a', alarmNote: S.alarm && !S.alarmAck ? 'Alarm not acknowledged' : '', version: 'browser only',
       chartSvgHtml: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 220" width="100%">' + chartSvg(samples, { t0: t0(), gaps: S.gaps, pauses: S.pauses }, S.alarmPct, HEX, 1000, 220) + '</svg>',
-      eventRowsHtml: S.events.slice(0, 25).map(function (e) { return '<tr class="' + eventKind(e) + '"><td>' + clock(e.ms) + '</td><td>' + L.escapeHtml(eventLabel(e)) + '</td><td class="n">' + (e.pct == null ? '' : e.pct) + '</td><td class="n"></td><td class="n"></td><td class="n">' + L.fmtElapsed(e.elapsedS) + '</td></tr>'; }).join(''),
+      eventRowsHtml: S.events.slice(0, 25).map(function (e) { return '<tr class="' + rowKind(e) + '"><td>' + clock(e.ms) + '</td><td>' + L.escapeHtml(rowLabel(e)) + '</td><td class="n">' + (e.pct == null ? '' : e.pct) + '</td><td class="n"></td><td class="n"></td><td class="n">' + L.fmtElapsed(e.elapsedS) + '</td></tr>'; }).join(''),
       eventsMore: S.events.length > 25 ? (S.events.length - 25) + ' more in the CSV' : ''
     };
     return '<!DOCTYPE html>\n' + L.fillReport(template(), d);
@@ -668,6 +801,7 @@ var Local = (function () {
     if (!navigator.getBattery) { failed = true; return; }
     return navigator.getBattery().then(function (b) {
       bat = b;
+      if (!b.charging) latchPct = pctNow();
       b.addEventListener('levelchange', onLevel);
       b.addEventListener('chargingchange', onCharging);
       if (active()) { wake(); tick(); }
@@ -675,13 +809,15 @@ var Local = (function () {
   });
 
   function state(since) {
+    flow();
     var p = pctNow(), segs = [];
     if (S) { segs = S.segments.slice(); if (S.open) segs.push({ startMs: S.open.startMs, endMs: null, startPct: S.open.startPct, endPct: null, startMwh: null, endMwh: null }); }
     return {
-      rev: rev, version: '14.0.0',
+      rev: rev, version: 'browser only', nowMs: now(), checks: checks(), armed: armed, countdownEndsMs: cdEnds,
+      app: { version: null, release: 0, updatedFrom: null, updateNote: null },
       unit: { maker: '', model: 'Browser only', serial: null, computerName: null }, batteries: [],
       now: { pct: p, mwh: null, fullMwh: null, rateMw: null, ac: bat ? bat.charging : null, charging: bat ? bat.charging && p < 100 : false, saver: false },
-      session: S ? { id: S.id, status: S.status, startedMs: S.startedMs, waitingSinceMs: S.waitingSinceMs || null, alarmPct: S.alarmPct, alarmPctMax: 50,
+      session: S ? { id: S.id, status: S.status, startedMs: S.startedMs, alarmPct: S.alarmPct, alarmPctMax: 50,
         alarm: !!S.alarm, alarmAck: !!S.alarmAck, segments: segs } : null,
       samples: S ? samples.filter(function (x) { return x.rev > since; }) : [],
       events: S ? S.events.filter(function (e) { return e.rev > since; }) : [],
@@ -695,17 +831,9 @@ var Local = (function () {
       if (method === 'GET') return state(+((path.match(/since=(\d+)/) || [])[1] || 0));
       switch (name) {
         case 'heartbeat': return { ok: true };
-        case 'start':
-          if (active()) return { ok: false, error: 'A test is already running.' };
-          if (failed || !bat || !L.canStart(pctNow())) return { ok: false, error: 'Charge to at least 96% first.' };
-          S = { id: 'b' + now(), status: 'waiting', startedMs: now(), waitingSinceMs: null, alarmPct: alarmPct, segments: [], open: null, gaps: [], pauses: [], events: [], lastMs: null, lastPct: null };
-          samples = [];
-          var x = sample('start');
-          event('start', x);
-          if (bat.charging) { S.waitingSinceMs = x.ms; event('waiting_unplug', x); }
-          else { S.status = 'running'; S.startPct = x.pct; openSeg(x); }
-          wake(); save(); schedule();
-          return { ok: true };
+        case 'arm': if (S) return { ok: false, error: active() ? 'A test is already running.' : 'Press New test first.' }; armed = true; cdEnds = null; return { ok: true };
+        case 'cancel': if (S || cdEnds == null) return { ok: false, error: 'No countdown is running.' }; cdEnds = null; armed = false; return { ok: true };
+        case 'new': if (!S || S.status !== 'done') return { ok: false, error: 'No finished test is showing.' }; S = null; samples = []; armed = true; save(); return { ok: true };
         case 'stop': if (!active()) return { ok: false, error: 'No test is running.' }; end('stop'); return { ok: true };
         case 'ack-alarm': if (S) { S.alarmAck = true; save(); } return { ok: true };
         case 'alarm-pct':

@@ -1,4 +1,4 @@
-// Battery-Logger/test/v14-fixes.test.mjs
+// test/v14-fixes.test.mjs
 // Build-audit fixes on the page (audit-build.md): I2 (F5 keeps the token) and I3 (failed Desktop saves are shown).
 // Logger mode against a tiny mocked exe in the api-contract.md shapes. Run (from Battery-Logger/):
 //   node --test --test-concurrency=1 test/v14-fixes.test.mjs
@@ -66,14 +66,14 @@ test('I2: F5 / reload keeps the token, so the page stays connected (no "Logger s
   } finally { await L.close(); }
 });
 
-test('I3: a failed Desktop save is shown in the result card and the alarm box', async () => {
+test('I3: a failed Desktop save is shown in the Done band and the alarm box', async () => {
   const result = { kind: 'alarm', reason: 'Ended at alarm', startEnd: '98% → 15%', alarmAck: false, runtimeS: 3600, startPct: 98, endPct: 15,
     estFullS: null, estFullEnergyS: null, avgW: 9, minW: 8, maxW: 10, healthPct: 91.9, fullChangedMwh: null, gapCount: 0, gapS: 0,
     pauseCount: 0, pauseS: 0, saver: 'off', brightnessStart: 60, brightnessEnd: 60, plan: 'Balanced', windows: 'Windows 11',
     files: { html: null, csv: null } };
   const L = await open(mockExe({ result, alarm: true }));
   try {
-    assert.match(await L.page.locator('#reportBox').innerText(), /Report not saved to the Desktop/);
+    assert.match(await L.page.locator('#doneSub').innerText(), /report not saved to the Desktop/);
     assert.ok(await L.page.isVisible('#alarm'));
     assert.match(await L.page.locator('#alarmT').innerText(), /could not be saved to the Desktop/);
     assert.doesNotMatch(await L.page.locator('#alarmT').innerText(), /report is saved to the Desktop/);
@@ -81,11 +81,15 @@ test('I3: a failed Desktop save is shown in the result card and the alarm box', 
 });
 
 test('I3: a Save CSV error is shown, not swallowed', async () => {
-  const L = await open(mockExe({ csvOk: false }));
+  const result = { kind: 'stop', reason: 'Stopped early', startEnd: '98% → 90%', alarmAck: true, runtimeS: 600, startPct: 98, endPct: 90,
+    estFullS: null, estFullEnergyS: null, avgW: 9, minW: 8, maxW: 10, healthPct: 91.9, fullChangedMwh: null, gapCount: 0, gapS: 0,
+    pauseCount: 0, pauseS: 0, saver: 'off', brightnessStart: 60, brightnessEnd: 60, plan: 'Balanced', windows: 'Windows 11',
+    files: { html: 'C:/x.html', csv: 'C:/x.csv' } };
+  const L = await open(mockExe({ csvOk: false, result }));   // v15: Save CSV lives in the Done band
   try {
-    await L.page.click('#exportBtn'); await realSleep(150); await advance(L, 200);
+    await L.page.click('#csvBtn'); await realSleep(150); await advance(L, 200);
     assert.ok(await L.page.isVisible('#csvMsg'));
     assert.equal(await L.page.locator('#csvMsg').innerText(), 'Could not save to the Desktop.');
-    assert.equal(await L.page.locator('#exportBtn').innerText(), 'Save CSV');
+    assert.equal(await L.page.locator('#csvBtn').innerText(), 'Save CSV');
   } finally { await L.close(); }
 });

@@ -173,13 +173,70 @@
     return 'Plugged in, full';
   }
 
+  // ---------------- v15: the state band, the live log ----------------
+
+  // Which band to show and what it says (plan §3). The exe decides; this only reads /api/state.
+  // Returns { mode: 'ready'|'count'|'logging'|'paused'|'done', checks: [{id, ok, text}], digit, showStart, sub }.
+  function bandView(s) {
+    s = s || {};
+    var sess = s.session, ck = s.checks || {}, n = s.now || {}, r = s.result;
+    if (sess && sess.status === 'running') return { mode: 'logging', checks: [], digit: null, showStart: false, sub: '' };
+    if (sess && sess.status === 'paused') return { mode: 'paused', checks: [], digit: null, showStart: false, sub: 'Unplug to continue' };
+    if (sess && sess.status === 'done') {
+      var saved = r && r.files && r.files.html;
+      return { mode: 'done', checks: [], digit: null, showStart: false,
+        sub: ((r && r.reason) || 'Test finished') + ' · ' + (saved ? 'report saved to the Desktop' : 'report not saved to the Desktop') };
+    }
+    var pctText = ck.pct96 ? 'Charged to 96% or more'
+      : 'Charge to 96% or more' + (n.pct == null ? '' : ' (now ' + n.pct + '%)') + (ck.chargeLimitHint ? ' · check the battery charge-limit setting' : '');
+    var checks = [
+      { id: 'battery', ok: !!ck.battery, text: ck.battery ? 'Battery found' : 'No battery found' },
+      { id: 'pct96', ok: !!ck.pct96, text: pctText },
+      { id: 'unplugged', ok: !!ck.unplugged, text: 'Charger unplugged' }
+    ];
+    if (s.countdownEndsMs != null) {
+      var left = s.countdownEndsMs - (s.nowMs == null ? s.countdownEndsMs : s.nowMs);
+      return { mode: 'count', checks: checks, digit: Math.max(1, Math.min(3, Math.ceil(left / 1000))), showStart: false, sub: '' };
+    }
+    return { mode: 'ready', checks: checks, digit: null, showStart: s.armed === false, sub: '' };
+  }
+
+  // One log row per reading and per event, newest first. A reading taken because of an event (same ms) is shown
+  // once, as the event row with that reading's numbers (M1). Rows: {rev, ms, type ('reading' or the event type),
+  // note, fromMs, toMs, pct, mwh, rateMw, elapsedS}.
+  function mergeRows(samples, events) {
+    var byMs = {}, rows = [];
+    (events || []).forEach(function (e) { byMs[e.ms] = true; });
+    (samples || []).forEach(function (x) {
+      if (byMs[x.ms]) return;
+      rows.push({ rev: x.rev, ms: x.ms, type: 'reading', note: '', fromMs: null, toMs: null, pct: x.pct, mwh: x.mwh, rateMw: x.rateMw, elapsedS: x.elapsedS });
+    });
+    var sampleAt = {};
+    (samples || []).forEach(function (x) { sampleAt[x.ms] = x; });
+    (events || []).forEach(function (e) {
+      var x = sampleAt[e.ms];
+      rows.push({ rev: e.rev, ms: e.ms, type: e.type, note: e.note || '', fromMs: e.fromMs, toMs: e.toMs,
+        pct: x ? x.pct : e.pct, mwh: x ? x.mwh : e.mwh, rateMw: x ? x.rateMw : e.rateMw, elapsedS: e.elapsedS });
+    });
+    rows.sort(function (a, b) { return b.ms - a.ms || b.rev - a.rev; });
+    return rows;
+  }
+
+  // DOM cap (I12): at most `cap` rows in the table (samples + events together). Returns how many of the oldest DOM
+  // rows to drop when `adding` more arrive. The in-memory samples (chart) and the CSV are never capped.
+  function capRows(domRows, adding, cap) {
+    cap = cap || 20000;
+    var over = domRows + adding - cap;
+    return over > 0 ? Math.min(over, domRows) : 0;
+  }
+
   var api = {
     intervalFor: intervalFor, detectGap: detectGap, canStart: canStart, segments: segments,
     countedTime: countedTime, countedDrop: countedDrop, countedEnergy: countedEnergy, estFull: estFull,
     estFullEnergy: estFullEnergy, avgW: avgW, etaToAlarm: etaToAlarm, health: health, fmtElapsed: fmtElapsed,
     fmtHm: fmtHm, isoLocal: isoLocal, csvRow: csvRow, escapeHtml: escapeHtml, fillReport: fillReport,
     sanitizeSerial: sanitizeSerial, isPlaceholderSerial: isPlaceholderSerial, validSample: validSample,
-    endReason: endReason, powerState: powerState
+    endReason: endReason, powerState: powerState, bandView: bandView, mergeRows: mergeRows, capRows: capRows
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.LaptapLogic = api;

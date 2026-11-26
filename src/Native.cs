@@ -1,4 +1,4 @@
-// Battery-Logger/v14/src/Native.cs
+// src/Native.cs
 // P/Invoke: keep-awake (SetThreadExecutionState), the 1 s power syscall (GetSystemPowerStatus),
 // and the read-only keep-awake check (CallNtPowerInformation SystemExecutionState).
 using System;

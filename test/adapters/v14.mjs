@@ -7,7 +7,7 @@ export default {
   stopYes: '#stopYes',
   stopNo: '#stopNo',
   startMsg: '#startMsg',
-  save: '#exportBtn',
+  save: '#csvBtn',
   percent: '#pct',
   stateLabel: '#wattsSub',
   elapsed: '#elapsed',

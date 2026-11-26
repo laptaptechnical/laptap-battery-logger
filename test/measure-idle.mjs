@@ -1,4 +1,4 @@
-// Battery-Logger/test/measure-idle.mjs
+// test/measure-idle.mjs
 // Idle-cost check for a logger page (default the v14 page in src/web, browser-only mode; LOGGER_FILE / ADAPTER to point elsewhere).
 //   node test/measure-idle.mjs            → fake-clock counts (exact, ~10 s)
 //   node test/measure-idle.mjs --cpu      → also real-time CPU, 120 s per case (~5 min)
@@ -25,7 +25,7 @@ async function window_(L, minutes) {
 // 2) logging, visible / hidden, plus growth of storage writes over an 8-hour run
 {
   const L = await openLogger({ file: TARGET, level: 1 });
-  await L.click(A.start);
+  await L.run(4500);   // v15: the page counts down and starts by itself (unplugged at 100%)
   out.fakeClock.loggingVisible = await window_(L, 10);
   await L.hide();
   out.fakeClock.loggingHidden = await window_(L, 10);
@@ -60,7 +60,7 @@ if (process.argv.includes('--cpu')) {
   out.cpu = [];
   out.cpu.push(await cpuCase('blank page (control)', async () => { const c = await (await browser()).newContext(); const p = await c.newPage(); await p.setContent('<p>x</p>'); return { page: p, close: () => c.close() }; }));
   out.cpu.push(await cpuCase('logger open, not logging', async () => { const L = await openLogger({ file: TARGET, level: 1, realClock: true }); return { page: L.page, close: L.close }; }));
-  out.cpu.push(await cpuCase('logger logging, reported hidden', async () => { const L = await openLogger({ file: TARGET, level: 1, realClock: true }); await L.click(A.start); await L.hide(); return { page: L.page, close: L.close }; }));
+  out.cpu.push(await cpuCase('logger logging, reported hidden', async () => { const L = await openLogger({ file: TARGET, level: 1, realClock: true }); await L.page.waitForTimeout(4500); await L.hide(); return { page: L.page, close: L.close }; }));
 }
 
 await closeBrowser();

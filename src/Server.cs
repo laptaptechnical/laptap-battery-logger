@@ -1,4 +1,4 @@
-// Battery-Logger/v14/src/Server.cs
+// src/Server.cs
 // HttpListener on http://localhost:<port>/ only (never + or *). Serves the embedded page and the JSON API.
 // Every request: loopback remote address (else 403), Host localhost:<port> (else 400), OPTIONS → 403,
 // /api/* needs the per-launch X-Laptap-Token (else 403). No CORS headers, ever.
@@ -30,6 +30,10 @@ public class Server
     public Func<Dictionary<string, object>> GetSnapshot = delegate { return new Dictionary<string, object>(); };
     public Action<Exception> OnCrash = delegate { };
     public byte[] IndexHtml = new byte[0], LogicJs = new byte[0];
+    long lastStateGetMs;   // the countdown only auto-starts while a page is polling (plan §3)
+    public long LastStateGetMs { get { return Interlocked.Read(ref lastStateGetMs); } }
+    public Action OnFirstState = delegate { };   // U1: the updated child says "owner" after the first answered poll
+    int firstStateDone;
 
     HttpListener listener;
     readonly JavaScriptSerializer json = new JavaScriptSerializer();
@@ -144,14 +148,16 @@ public class Server
 
         if (q.HttpMethod == "GET" && path == "/api/state")
         {
+            Interlocked.Exchange(ref lastStateGetMs, Rules.NowMs());
             long since = 0; long.TryParse(q.QueryString["since"] ?? "0", out since);
             SendJson(ctx, 200, Filter(GetSnapshot(), since));
+            if (Interlocked.Exchange(ref firstStateDone, 1) == 0) { try { OnFirstState(); } catch { } }
             return;
         }
         if (q.HttpMethod == "POST")
         {
             string name = path.Substring("/api/".Length);
-            if (name != "heartbeat" && name != "start" && name != "stop" && name != "ack-alarm" && name != "alarm-pct" && name != "save-csv")
+            if (!IsCommand(name))
             { SendJson(ctx, 404, Err("Unknown command.")); return; }
             Dictionary<string, object> body = null;
             if (q.HasEntityBody && q.ContentLength64 <= 4096)
@@ -163,11 +169,20 @@ public class Server
             Command c = new Command(); c.Name = name; c.Body = body;
             Commands.Add(c);
             // Start runs powercfg (up to 15 s); everything else answers fast.
-            if (!c.Done.Wait(name == "start" || name == "stop" ? 30000 : 5000)) { SendJson(ctx, 503, Err("Busy, try again.")); return; }
+            if (!c.Done.Wait(name == "stop" ? 30000 : 5000)) { SendJson(ctx, 503, Err("Busy, try again.")); return; }
             SendJson(ctx, 200, c.Result);
             return;
         }
         Send(ctx, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("404"));
+    }
+
+    public static bool IsCommand(string name)
+    {
+#if TESTHOOKS
+        if (name == "start") return true;   // test hook only; the release build has no such route
+#endif
+        return name == "heartbeat" || name == "stop" || name == "ack-alarm" || name == "alarm-pct" || name == "save-csv"
+            || name == "arm" || name == "cancel" || name == "new";
     }
 
     static Dictionary<string, object> Err(string m)
@@ -179,6 +194,7 @@ public class Server
     public static Dictionary<string, object> Filter(Dictionary<string, object> snap, long since)
     {
         Dictionary<string, object> d = new Dictionary<string, object>(snap);
+        d["nowMs"] = Rules.NowMs();   // the page shows the countdown from countdownEndsMs - nowMs
         foreach (string k in new string[] { "samples", "events" })
         {
             object v;

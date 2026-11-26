@@ -1,6 +1,7 @@
-// Battery-Logger/v14/src/Program.cs
-// Laptap Battery Logger v14: one exe. Self-check → single instance → local server → Edge app window →
-// recovery → static read → main loop (1 s tick + commands). The main thread owns keep-awake and the session.
+// src/Program.cs
+// Laptap Battery Logger: one exe. Update mutex → repair / staged swap (plan §5.4 B) → single instance → self-check →
+// local server → Edge app window → recovery → static read → background update check (§5.4 A) → main loop.
+// The main thread owns keep-awake and the session.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -16,37 +17,89 @@ using System.Windows.Forms;
 [assembly: AssemblyProduct("Laptap Battery Logger")]
 [assembly: AssemblyCompany("Laptap Enterprises, Inc.")]
 [assembly: AssemblyDescription("Battery run-down test logger")]
-[assembly: AssemblyVersion("14.0.0.0")]
-[assembly: AssemblyFileVersion("14.0.0.0")]
 
 static class Program
 {
     const string Title = "Battery Logger";
-    static Mutex mutex;
+    static Mutex mutex, updateMutex;
+    static bool ownsUpdateMutex;
     static Server server;
     static bool quiet;   // --qa-no-window: never put a box on screen
+    static string MainMutexName { get { return @"Local\LaptapBatteryLogger" + UpdateConfig.TestNamespace; } }
+    static string UpdateMutexName { get { return @"Local\LaptapBatteryLogger-update" + UpdateConfig.TestNamespace; } }
+    static string ExePath { get { return Assembly.GetExecutingAssembly().Location; } }
 
     [STAThread]
     static int Main(string[] args)
     {
-        int qaAlarm = 0; bool qaNoWindow = false;
+        int qaAlarm = 0; bool qaNoWindow = false, noUpdate = false, selfTest = false; string updatedNonce = null, verifyDir = null, keysFile = null;
+        List<string> passOn = new List<string>();   // QA switches handed to a swapped-in exe
         for (int i = 0; i < args.Length; i++)
         {
-            if (args[i] == "--qa-alarm-pct" && i + 1 < args.Length) { int v; if (int.TryParse(args[i + 1], out v) && v >= 1 && v <= 95) qaAlarm = v; i++; }
-            else if (args[i] == "--qa-no-window") { qaNoWindow = true; quiet = true; }
-            else if (args[i] == "--qa-out" && i + 1 < args.Length) { if (Directory.Exists(args[i + 1])) Report.QaOutDir = args[i + 1]; i++; }
+            if (args[i] == "--qa-alarm-pct" && i + 1 < args.Length) { int v; if (int.TryParse(args[i + 1], out v) && v >= 1 && v <= 95) qaAlarm = v; passOn.Add(args[i]); passOn.Add(args[i + 1]); i++; }
+            else if (args[i] == "--qa-no-window") { qaNoWindow = true; quiet = true; passOn.Add(args[i]); }
+            else if (args[i] == "--qa-out" && i + 1 < args.Length) { if (Directory.Exists(args[i + 1])) Report.QaOutDir = args[i + 1]; passOn.Add(args[i]); passOn.Add("\"" + args[i + 1] + "\""); i++; }
+            else if (args[i] == "--updated" && i + 1 < args.Length) { updatedNonce = args[i + 1]; i++; }
+            else if (args[i] == "--no-update") noUpdate = true;
+            else if (args[i] == "--verify-release" && i + 1 < args.Length) { verifyDir = args[i + 1]; i++; }
+            else if (args[i] == "--keys-file" && i + 1 < args.Length) { keysFile = args[i + 1]; i++; }
+            else if (args[i] == "--self-test") selfTest = true;
         }
+        if (UpdateConfig.TestNamespace.Length > 0) Engine.BaseDir = Engine.BaseDir + "-test-" + UpdateConfig.TestNamespace;
         try { Directory.CreateDirectory(Engine.BaseDir); } catch { }
+
+        // --verify-release <dir>: read-only check, no window, exit code only (0 = good).
+        if (verifyDir != null)
+        {
+            string why; int rc = Updater.VerifyRelease(verifyDir, keysFile, out why);
+            try { Console.WriteLine(why); } catch { }
+            return rc;
+        }
+        // --self-test: resources, engine and local server work (release.ps1 runs it before signing, U1). 0 = good.
+        if (selfTest) { quiet = true; return SelfTest(); }
+
+        string updatedFrom = null;
+        if (updatedNonce != null)
+        {
+            // Child of an update (C1, C2): say "alive" before anything else, then wait for the old process's mutex.
+            Updater.Announce(updatedNonce, "alive");
+            updatedFrom = Updater.TakeUpdatedFrom(updatedNonce);
+        }
+        else
+        {
+            // Every other launch waits while an update hand-off is in progress (C1), then repairs / swaps.
+            try
+            {
+                updateMutex = new Mutex(false, UpdateMutexName);
+                try { ownsUpdateMutex = updateMutex.WaitOne(30000); } catch (AbandonedMutexException) { ownsUpdateMutex = true; }
+            }
+            catch { ownsUpdateMutex = false; }
+        }
 
         bool owned;
         try
         {
-            mutex = new Mutex(false, @"Local\LaptapBatteryLogger");
-            try { owned = mutex.WaitOne(0); } catch (AbandonedMutexException) { owned = true; }
+            mutex = new Mutex(false, MainMutexName);
+            int wait = updatedNonce != null ? 30000 : 0;
+            try { owned = mutex.WaitOne(wait); } catch (AbandonedMutexException) { owned = true; }
         }
-        catch (Exception ex) { return Fail("could not check for a running logger (" + ex.Message + ")", ex); }
+        catch (Exception ex) { ReleaseUpdateMutex(); return Fail("could not check for a running logger (" + ex.Message + ")", ex); }
 
-        if (!owned) return Reconnect(qaNoWindow);
+        if (updatedNonce != null)
+        {
+            if (!owned) { Updater.Log("updated child: main mutex not free in 30 s"); return 1; }
+            childNonce = updatedNonce;   // U1: "owner" is written once the server is up and the first page poll was answered
+        }
+
+        if (!owned) { ReleaseUpdateMutex(); return Reconnect(qaNoWindow); }
+
+        // ---- B: repair + staged swap, holding both mutexes (plan §5.4 B) ----
+        if (updatedNonce == null && !noUpdate)
+        {
+            int handoff = TrySwap(string.Join(" ", passOn.ToArray()));
+            if (handoff >= 0) return handoff;   // the new exe took over (or we restarted after a rollback)
+        }
+        ReleaseUpdateMutex();
         try { File.Delete(Path.Combine(Engine.BaseDir, "helper.json")); } catch { }   // M10: never hand out a stale token
 
         try
@@ -54,12 +107,12 @@ static class Program
             // ---- self-check (I5) ----
             bool ac, saver, present, crit; double? pct;
             if (!Battery.PowerStatus(out ac, out pct, out saver, out present, out crit)) return Fail("Windows did not report the power status", null);
-            if (!present) return Fail(null, null, "No battery found on this computer.");
+            if (!present) { RefusedByLaptop(); return Fail(null, null, "No battery found on this computer."); }
             string desk = Report.Desktop();
-            if (string.IsNullOrEmpty(desk) || !Directory.Exists(desk)) return Fail("the Desktop folder was not found", null);
+            if (string.IsNullOrEmpty(desk) || !Directory.Exists(desk)) { RefusedByLaptop(); return Fail("the Desktop folder was not found", null); }
 
             Engine en = new Engine();
-            en.QaAlarmPct = qaAlarm; en.QaNoWindow = qaNoWindow;
+            en.QaAlarmPct = qaAlarm; en.QaNoWindow = qaNoWindow; en.UpdatedFrom = updatedFrom;
             if (qaAlarm > 0) en.AlarmPct = qaAlarm;
             string index = Resource("index.html"), logic = Resource("logic.js");   // into memory once (I1)
             if (index == null || logic == null) return Fail("the page is missing from the exe", null);
@@ -69,6 +122,8 @@ static class Program
             server.IndexHtml = Encoding.UTF8.GetBytes(index);
             server.LogicJs = Encoding.UTF8.GetBytes(logic);
             server.GetSnapshot = delegate { return en.Snapshot; };
+            server.OnFirstState = delegate { if (childNonce != null) Updater.Announce(childNonce, "owner"); };
+            en.LastPollMs = delegate { return server.LastStateGetMs; };
             server.OnCrash = delegate(Exception ex) { Fail("the local server stopped (" + ex.Message + ")", ex); Environment.Exit(1); };
             if (!server.Start()) return Fail("no free local port between " + Server.FirstPort + " and " + Server.LastPort, null);
             WriteHelperJson(server.Port, server.Token);
@@ -84,26 +139,115 @@ static class Program
             en.Tick();
             en.Publish();
 
+            // ---- A: check + download in the background once per start, only while Ready/Done (C3: the window is already open) ----
+            bool stopping = false;
+            if (!noUpdate)
+            {
+                Updater.CheckOptions o = new Updater.CheckOptions();
+                o.ExePath = ExePath; o.OwnRelease = AppVersion.Release; o.BuildDateUtcMs = AppVersion.BuildDateUtcMs;
+                o.BaseUrl = UpdateConfig.BaseUrl; o.UpdatedThisStart = updatedNonce != null;
+                o.Idle = delegate { Engine e = en; return e.S == null || e.S.Status == "done"; };
+                o.Stopping = delegate { return stopping; };
+                Thread ut = new Thread(delegate()
+                {
+                    try { string r = Updater.CheckAndStage(o); Updater.Log("check: " + r); en.RequestPublish = true; }
+                    catch (Exception ex) { Updater.Log("check crashed: " + ex.Message); }
+                });
+                ut.IsBackground = true; ut.Name = "update"; ut.Priority = ThreadPriority.BelowNormal;
+                ut.Start();
+            }
+
             // ---- main loop (M3) ----
             Stopwatch tick = Stopwatch.StartNew();
             while (true)
             {
                 Command c;
-                if (server.Commands.TryTake(out c, 1000))
+                if (server.Commands.TryTake(out c, en.WaitMs()))
                 {
                     try { c.Result = en.Command(c.Name, c.Body); }
                     catch (Exception ex) { c.Result = new Dictionary<string, object>(); c.Result["ok"] = false; c.Result["error"] = ex.Message; LogError("command " + c.Name, ex); }
                     c.Done.Set();
                 }
-                if (tick.ElapsedMilliseconds >= 950) { tick.Restart(); try { en.Tick(); } catch (Exception ex) { LogError("tick", ex); } }   // M1
+                if (tick.ElapsedMilliseconds >= 950 || en.CountdownDue()) { tick.Restart(); try { en.Tick(); } catch (Exception ex) { LogError("tick", ex); } }   // M1
+                if (en.RequestPublish) { en.RequestPublish = false; en.Publish(); }
                 if (en.ShouldExit()) break;
             }
+            stopping = true;
             server.Stop();
             try { File.Delete(Path.Combine(Engine.BaseDir, "helper.json")); } catch { }
             try { mutex.ReleaseMutex(); } catch { }
             return 0;
         }
         catch (Exception ex) { return Fail("unexpected error (" + ex.Message + ")", ex); }
+    }
+
+    static string childNonce;   // set in a run started with --updated
+
+    // A refusal that is the laptop's fault (no battery, no Desktop) is not the release's: no rollback (C2).
+    static void RefusedByLaptop() { if (childNonce != null) Updater.Announce(childNonce, "refused"); }
+
+    // U1: load both resources, build the engine, start the server on a free port, read /api/state and the page back.
+    static int SelfTest()
+    {
+        Server s = null;
+        try
+        {
+            string index = Resource("index.html"), logic = Resource("logic.js");
+            if (index == null || logic == null || !index.Contains("<template id=\"report\">")) return 2;
+            Engine en = new Engine(); en.IndexHtml = index; en.QaNoWindow = true;
+            en.Publish();
+            s = new Server();
+            s.IndexHtml = Encoding.UTF8.GetBytes(index); s.LogicJs = Encoding.UTF8.GetBytes(logic);
+            s.GetSnapshot = delegate { return en.Snapshot; };
+            if (!s.Start()) return 3;
+            string bas = "http://localhost:" + s.Port.ToString(CultureInfo.InvariantCulture);
+            System.Net.HttpWebRequest rq = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(bas + "/api/state");
+            rq.Headers["X-Laptap-Token"] = s.Token; rq.Timeout = 10000; rq.Proxy = null;
+            string st;
+            using (System.Net.WebResponse r = rq.GetResponse()) using (StreamReader sr = new StreamReader(r.GetResponseStream())) st = sr.ReadToEnd();
+            if (!st.Contains("\"version\":\"" + AppVersion.Version + "\"")) return 4;
+            System.Net.HttpWebRequest pg = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(bas + "/");
+            pg.Timeout = 10000; pg.Proxy = null;
+            string page;
+            using (System.Net.WebResponse r = pg.GetResponse()) using (StreamReader sr = new StreamReader(r.GetResponseStream())) page = sr.ReadToEnd();
+            if (!page.Contains("<script src=\"logic.js\"></script>")) return 5;
+            return 0;
+        }
+        catch (Exception ex) { LogError("self-test", ex); return 9; }
+        finally { if (s != null) s.Stop(); }
+    }
+
+    static void ReleaseUpdateMutex()
+    {
+        if (ownsUpdateMutex) { try { updateMutex.ReleaseMutex(); } catch { } ownsUpdateMutex = false; }
+    }
+
+    // Plan §5.4 B. Returns -1 to carry on starting normally, or an exit code when another process took over.
+    static int TrySwap(string passArgs)
+    {
+        string exe = ExePath;
+        try
+        {
+            Updater.Repair(exe);
+            bool del;
+            Manifest m = Updater.StagedOk(exe, AppVersion.Release, out del);
+            if (m == null) { if (del) { Updater.DeleteStaged(exe); Updater.Log("staged copy refused and deleted"); } return -1; }
+            if (Updater.AnySessionNotDone()) { Updater.Log("staged " + m.Version + " waits: a test is not finished"); return -1; }
+            if (!ownsUpdateMutex) return -1;
+            if (!Updater.Swap(exe)) return -1;
+            Updater.Log("swapped to " + m.Version + "; handing off");
+            IChild child;
+            string fail = Updater.HandOff(exe, passArgs, new ProcessLauncher(), delegate { try { mutex.ReleaseMutex(); } catch { } }, 60000, out child);   // U1: owner waits for Edge + the first poll
+            if (fail == null) { ReleaseUpdateMutex(); return 0; }   // the new exe owns everything now
+            Updater.Log("hand-off failed: " + fail);
+            Updater.Rollback(exe, child, m.Release, fail);
+            try { mutex.ReleaseMutex(); } catch { }
+            ReleaseUpdateMutex();
+            try { ProcessStartInfo p = new ProcessStartInfo(exe, "--no-update " + passArgs); p.UseShellExecute = false; Process.Start(p); }
+            catch (Exception ex) { LogError("restart after a failed update", ex); }
+            return 0;
+        }
+        catch (Exception ex) { Updater.Log("swap step: " + ex.Message); return -1; }
     }
 
     static string Resource(string name)

@@ -1,4 +1,4 @@
-// Battery-Logger/v14/src/Rules.cs
+// src/Rules.cs
 // Pure numeric rules: the C# copy of src/web/logic.js. tests/fixtures/rules.json is run against both.
 // C# 5 only (built with the .NET Framework csc): no $"", no ?., no nameof.
 using System;

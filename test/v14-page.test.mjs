@@ -1,10 +1,12 @@
-// Battery-Logger/test/v14-page.test.mjs
-// v13's 17 bug tests, re-pointed at the v14 page (v14/src/web/index.html). Same harness: headless, muted,
+// test/v14-page.test.mjs
+// v13's 17 bug tests, kept as regressions on the current page (src/web/index.html). Same harness: headless, muted,
 // AudioContext stubbed, fake clock. Two modes:
 //   - logger mode: the page is served at http://localhost:47600/ by a mocked exe (FakeExe answers /api/*);
 //   - browser-only mode: the page opened as file:// with the fake navigator.getBattery().
-// v14 removed Pause/Clear/Restart and the text log, so each test checks the v14 form of the same fix (plan §5).
-// Run (from Battery-Logger/):  node --test --test-concurrency=1 test/v14-page.test.mjs
+// v15: there is no Start button in the normal flow. The exe runs the checklist + 3 s countdown, so logger-mode tests
+// start the mocked test with exe.post('/api/start') (the TESTHOOKS hook) and browser-only tests let the page's own
+// countdown run (unplugged at 100%). The v15 start flow itself is covered by Impl #2's test/v15-*.test.mjs.
+// Run (from the repo root):  node --test --test-concurrency=1 test/v14-page.test.mjs
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -75,14 +77,17 @@ class FakeExe {
   stateContract(since) {
     const S = this.S, r = this.result, TYPE = { waiting: 'waiting_unplug', report: 'report_saved' };
     const segs = S ? S.segs.map(g => ({ startMs: g.start, endMs: g.end, startPct: null, endPct: null, startMwh: null, endMwh: null })) : [];
-    return { rev: this.rev, version: '14.0.0',
+    const ready = !S || S.status === 'waiting';
+    return { rev: this.rev, version: '15.0.0', nowMs: this.at,
+      checks: { battery: true, pct96: this.now.pct != null && this.now.pct >= 96, unplugged: !this.now.ac, chargeLimitHint: false },
+      armed: true, countdownEndsMs: null, app: { version: '15.0.0', release: 1, updatedFrom: null, updateNote: null },
       unit: { maker: this.unit.manufacturer, model: this.unit.model, serial: this.unit.serial, computerName: 'LAPTOP-1234' },
       batteries: this.batteries.map(b => ({ fullEndMwh: null, ...b })), now: { ...this.now },
-      session: S && { id: S.id, status: S.status, startedMs: S.startedMs, waitingSinceMs: S.status === 'waiting' ? S.startedMs : null,
+      session: ready ? null : { id: S.id, status: S.status, startedMs: S.startedMs,
         alarmPct: this.alarmPct, alarmPctMax: 50, alarm: S.alarm, alarmAck: S.alarmAck, segments: segs },
-      samples: S ? this.samples.filter(x => x.rev > since).map(x => ({ rev: x.rev, ms: x.ms, elapsedS: x.e, pct: x.pct, mwh: x.mwh, fullMwh: 47378,
+      samples: !ready ? this.samples.filter(x => x.rev > since).map(x => ({ rev: x.rev, ms: x.ms, elapsedS: x.e, pct: x.pct, mwh: x.mwh, fullMwh: 47378,
         rateMw: x.rateMw, rateSrc: 'wmi', voltageMv: 12000, ac: x.ac, saver: false })) : [],
-      events: S ? this.events.filter(x => x.rev > since).map(e => {
+      events: !ready ? this.events.filter(x => x.rev > since && x.type !== 'waiting').map(e => {
         const g = e.type === 'gap' ? S.gaps.find(q => q.toMs === e.ms) : null;
         return { rev: e.rev, ms: e.ms, elapsedS: e.e, type: TYPE[e.type] || e.type, pct: e.pct, mwh: e.mwh, rateMw: e.rateMw,
           note: g ? g.reason : '', fromMs: g ? g.fromMs : null, toMs: g ? g.toMs : null }; }) : [],
@@ -107,6 +112,8 @@ class FakeExe {
     if (p === '/api/alarm-pct') { if (!(body.pct >= 10 && body.pct <= 50)) return { ok: false, error: 'Alarm must be 10 to 50%.' }; this.alarmPct = body.pct; return { ok: true }; }
     if (p === '/api/save-csv') return this.S ? { ok: true, file: 'C:\\Users\\tech\\Desktop\\x.csv',path: 'C:\\Users\\tech\\Desktop\\x.csv' } : { ok: false, error: 'No test yet.' };
     if (p === '/api/heartbeat') return { ok: true };
+    if (p === '/api/new') { if (!this.S || this.S.status !== 'done') return { ok: false, error: 'No finished test is showing.' }; this.S = null; this.samples = []; this.events = []; this.result = null; return { ok: true }; }
+    if (p === '/api/arm' || p === '/api/cancel') return { ok: true };
     return null;
   }
   routes() {
@@ -150,13 +157,14 @@ const errs = (L) => assert.deepEqual(L.consoleErrors, [], 'page errors');
 // ---------------- bug 1: fake 95% ----------------
 test('bug 1a: no % shown or loggable while the Battery API has not answered; Start refused', () => withPage({ battery: 'pending', level: 0.42 }, async (L) => {
   assert.doesNotMatch(await txt(L, '#pct'), /\d/, 'a % with no reading');
-  await L.click('#startBtn');
-  assert.match(await txt(L, '#startMsg'), /Charge to at least 96% first\./);
+  await L.run(5000);
+  assert.ok(!(await L.page.getAttribute('#cPct', 'class') || '').includes('ok'), '96% check not met without a reading');
+  assert.ok(!(await L.page.isVisible('#bLog')), 'no test started');
   assert.doesNotMatch(await rows(L), /\d+/);
   errs(L);
 }));
 test('bug 1b: no % with no Battery API at all (browser-only)', () => withPage({ battery: 'absent' }, async (L) => {
-  await L.click('#startBtn');
+  await L.run(5000);
   assert.doesNotMatch(await txt(L, '#pct'), /\d/, 'a % with no reading');
   assert.doesNotMatch(await rows(L), /%|\d/);
 }));
@@ -166,7 +174,7 @@ test('bug 1c: logger mode shows "—" when Windows gives no % (never a default)'
 
 // ---------------- bug 2 / 7: gaps ----------------
 test('bug 2: a 30-min sleep is a Gap row and is not counted (browser-only)', () => withPage({ level: 1, charging: false }, async (L) => {
-  await L.click('#startBtn');
+  await L.run(4500);
   await L.run(2 * MIN); await L.sleep(30 * MIN); await L.run(1 * MIN);
   assert.match(await rows(L), /Gap 0:3\d · unknown/);
   const [h, m] = (await txt(L, '#elapsed')).split(':').map(Number);
@@ -176,7 +184,7 @@ test('bug 2: a 30-min sleep is a Gap row and is not counted (browser-only)', () 
 test('bug 2 (logger): the exe gap event shows "Gap 0:30 · laptop slept" and Elapsed skips it', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); exe.unplug(); await L.step(2 * MIN); exe.drain(98);
+    exe.post('/api/start'); exe.unplug(); await L.step(2 * MIN); exe.drain(98);
     exe.gap(30); exe.drain(95); await L.step(6000);
     assert.match(await rows(L), /Gap 0:30 · laptop slept/);
     const [h, m] = (await txt(L, '#elapsed')).split(':').map(Number);
@@ -184,7 +192,7 @@ test('bug 2 (logger): the exe gap event shows "Gap 0:30 · laptop slept" and Ela
   });
 });
 test('bug 7: a 5-min freeze of the page leaves a Gap row (browser-only)', () => withPage({ level: 1 }, async (L) => {
-  await L.click('#startBtn'); await L.run(1 * MIN);
+  await L.run(4500); await L.run(1 * MIN);
   await L.page.evaluate(() => document.dispatchEvent(new Event('freeze')));
   await L.sleep(5 * MIN);
   await L.page.evaluate(() => document.dispatchEvent(new Event('resume')));
@@ -193,8 +201,8 @@ test('bug 7: a 5-min freeze of the page leaves a Gap row (browser-only)', () => 
 }));
 
 // ---------------- bug 3: confirm, no wipe ----------------
-test('bug 3: Stop asks in-page first; "Keep running" keeps the test; no Clear/Restart/Pause', () => withExe(new FakeExe(), {}, async (L) => {
-  await L.click('#startBtn');
+test('bug 3: Stop asks in-page first; "Keep running" keeps the test; no Clear/Restart/Pause', () => { const exe = new FakeExe(); return withExe(exe, {}, async (L) => {
+  exe.post('/api/start'); exe.unplug();
   await L.step(5000);
   await L.click('#stopBtn');
   assert.ok(await L.page.isVisible('#stopConfirm'));
@@ -205,20 +213,21 @@ test('bug 3: Stop asks in-page first; "Keep running" keeps the test; no Clear/Re
   assert.ok(await L.page.isEnabled('#stopBtn'), 'test still running');
   const names = (await L.page.locator('button').allInnerTexts()).join('|');
   assert.doesNotMatch(names, /Clear|Restart|Pause/);
-}));
+}); });
 
 // ---------------- bug 4: files ----------------
 test('bug 4 (logger): Save CSV asks the exe to write it and says "Saved to Desktop"', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); await L.step(5000);
-    await L.click('#exportBtn'); await L.run(50);
+    exe.post('/api/start'); exe.unplug(); await L.step(5000);
+    await L.click('#stopBtn'); await L.click('#stopYes'); await L.run(200);
+    await L.click('#csvBtn'); await L.run(50);
     assert.ok(exe.calls.some(c => c.m === 'POST' && c.p === '/api/save-csv'));
-    assert.equal(await txt(L, '#exportBtn'), 'Saved to Desktop');
+    assert.equal(await txt(L, '#csvBtn'), 'Saved to Desktop');
   });
 });
 test('bug 4 (browser-only): Stop downloads the report + CSV built from the embedded template', () => withPage({ level: 1 }, async (L) => {
-  await L.click('#startBtn'); await L.run(15 * MIN);
+  await L.run(4500); await L.run(15 * MIN);
   await L.click('#stopBtn'); await L.click('#stopYes'); await L.run(500);
   await waitFor(() => L.downloads.length >= 2 && L.downloads.every(d => d.text != null));
   const names = L.downloads.map(d => d.name).join('|');
@@ -233,7 +242,7 @@ test('bug 4 (browser-only): Stop downloads the report + CSV built from the embed
 test('bug 5 (logger): a reload reconnects to the running test with its rows', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); exe.unplug(); await L.step(6000);
+    exe.post('/api/start'); exe.unplug(); await L.step(6000);
     const before = await rows(L);
     await L.page.goto(`${ORIGIN}/#t=${exe.token}`); await L.run(200);
     assert.equal(await rows(L), before);
@@ -241,7 +250,7 @@ test('bug 5 (logger): a reload reconnects to the running test with its rows', ()
   });
 });
 test('bug 5 (browser-only): a reload restores the running test from IndexedDB', () => withPage({ level: 1 }, async (L) => {
-  await L.click('#startBtn'); await L.run(2 * MIN);
+  await L.run(4500); await L.run(2 * MIN);
   const before = (await rows(L)).split('\n').length;
   await L.reload(); await L.run(500);
   assert.ok(await L.page.isEnabled('#stopBtn'), 'still running after reload');
@@ -249,16 +258,16 @@ test('bug 5 (browser-only): a reload restores the running test from IndexedDB', 
 }));
 
 // ---------------- bug 6: alarm audio ----------------
-test('bug 6a: the one AudioContext is made inside the Start click', () => withExe(new FakeExe(), {}, async (L) => {
-  await L.click('#startBtn');
-  const { audio } = await L.probe();
-  assert.equal(audio.contexts, 1);
-  assert.equal(audio.gestureAtCreate[0], true);
-}));
+test('bug 6a: one AudioContext, made when the alarm shows (the exe starts Edge with autoplay allowed)', () => { const exe = new FakeExe(); return withExe(exe, {}, async (L) => {
+  exe.post('/api/start'); exe.unplug(); await L.step(5000);
+  assert.equal((await L.probe()).audio.contexts, 0, 'nothing made before the alarm');
+  exe.drain(15); exe.end('alarm'); await L.step(6000);
+  assert.equal((await L.probe()).audio.contexts, 1);
+}); });
 test('bug 6b: alarm rings until OK, with no extra AudioContexts, then acks to the exe', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); exe.unplug(); exe.drain(15); exe.end('alarm'); await L.step(6000);
+    exe.post('/api/start'); exe.unplug(); exe.drain(15); exe.end('alarm'); await L.step(6000);
     assert.ok(await L.page.isVisible('#alarm'));
     assert.match(await txt(L, '#alarmT'), /Plug in the charger\. The test is done and the report is saved to the Desktop\./);
     await L.run(12_000);
@@ -274,10 +283,11 @@ test('bug 6b: alarm rings until OK, with no extra AudioContexts, then acks to th
 
 // ---------------- bug 8: plug + changes ----------------
 test('bug 8a: charger in mid-test pauses at once, unplug resumes (browser-only)', () => withPage({ level: 1 }, async (L) => {
-  await L.click('#startBtn'); await L.run(30_000);
+  await L.run(4500); await L.run(30_000);
   await L.bat.set({ level: 0.97 }); await L.bat.set({ charging: true }); await L.run(5000);
   assert.match(await rows(L), /Charger plugged in · paused/);
-  assert.match(await txt(L, '#eta'), /Paused/);
+  assert.match(await txt(L, '#bigWord'), /^PAUSED · charger plugged in$/);
+  assert.equal(await txt(L, '#eta'), 'Unplug to continue');
   const el1 = await txt(L, '#elapsed'); await L.run(5 * MIN);
   await L.bat.set({ charging: false }); await L.run(5000);
   assert.match(await rows(L), /Unplugged · resumed/);
@@ -295,12 +305,12 @@ test('bug 8b (logger): a % change shows within one 5 s poll', () => {
 test('bug 9: Stop ends the test and shows the Result card with the Desktop paths', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); exe.unplug(); await L.step(10 * MIN); exe.drain(90);
+    exe.post('/api/start'); exe.unplug(); await L.step(10 * MIN); exe.drain(90);
     await L.click('#stopBtn'); await L.click('#stopYes'); await L.run(200);
-    const card = await txt(L, '#reportBox');
-    assert.match(card, /Result/); assert.match(card, /Stopped early/); assert.match(card, /Runtime/);
-    assert.match(card, /Desktop\\Battery 5CB4190FVX 2026-11-26 0900\.html/);
-    assert.equal(await txt(L, '#startBtn'), 'New test');
+    assert.match(await txt(L, '#doneSub'), /^Stopped early · report saved to the Desktop$/);
+    assert.match(await txt(L, '#resV'), /^\d+:\d\d$/);
+    assert.match(await txt(L, '#resS'), /100% → 90%/);
+    assert.ok(await L.page.isVisible('#newBtn'), 'New test shown');
   });
 });
 
@@ -308,12 +318,12 @@ test('bug 9: Stop ends the test and shows the Result card with the Desktop paths
 test('bug 10: rows are separate table rows; New test starts a clean table', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); exe.unplug(); await L.step(6000);
-    assert.ok(await L.page.locator('#rows tr').count() >= 3);
+    exe.post('/api/start'); exe.unplug(); await L.step(6000);
+    assert.ok(await L.page.locator('#rows tr').count() >= 2);   // v15 (M1): an event and its own reading are one row
     await L.click('#stopBtn'); await L.click('#stopYes'); await L.run(200);
-    await L.click('#startBtn');
+    await L.click('#newBtn');
     assert.equal(await L.page.locator('#rows tr').count(), 0);
-    assert.ok(!(await L.page.isVisible('#reportBox')));
+    assert.equal(await txt(L, '#resV'), '—');
   });
 });
 
@@ -321,7 +331,7 @@ test('bug 10: rows are separate table rows; New test starts a clean table', () =
 test('bug 11: no Pause; each event row carries the reading at that moment', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); exe.unplug(); await L.step(5000);
+    exe.post('/api/start'); exe.unplug(); await L.step(5000);
     exe.drain(70); exe.plug(); await L.step(5000);
     const row = await L.page.locator('#rows tr', { hasText: 'Charger plugged in' }).innerText();
     assert.match(row, /\t70\t/);
@@ -333,8 +343,7 @@ test('bug 11: no Pause; each event row carries the reading at that moment', () =
 test('bug 12 (browser-only): a getBattery() failure is shown, not "Checking…"', () => withPage({ battery: 'reject' }, async (L) => {
   await L.run(2000);
   assert.match(await txt(L, '#helper'), /Browser only · no health/);
-  await L.click('#startBtn'); await L.run(100);
-  assert.ok(await L.page.isVisible('#startMsg'), 'Start says why it cannot start');
+  assert.equal(await txt(L, '#cBatT'), 'No battery found', 'the checklist says why it cannot start');
   assert.doesNotMatch(await L.page.locator('body').innerText(), /Checking/);
 }));
 test('bug 12 (logger): 3 failed polls → "Logger stopped", buttons off, never browser-only', () => {
@@ -342,7 +351,7 @@ test('bug 12 (logger): 3 failed polls → "Logger stopped", buttons off, never b
   return withExe(exe, {}, async (L) => {
     exe.down = true; for (let i = 0; i < 4; i++) await L.step(5000);
     assert.match(await txt(L, '#helper'), /Logger stopped\. Open Laptap Battery Logger again\./);
-    for (const b of ['#startBtn', '#stopBtn', '#exportBtn']) assert.ok(await L.page.isDisabled(b), b);
+    for (const b of ['#startBtn', '#cancelBtn', '#stopBtn', '#csvBtn', '#newBtn']) assert.ok(await L.page.isDisabled(b), b);
     const calls = exe.calls.length; await L.step(MIN);
     assert.equal(exe.calls.length, calls, 'stops polling once lost');
   });
@@ -366,8 +375,8 @@ test('bug 14: two batteries → health = ΣFull ÷ ΣDesign, both counted', () =
 test('bug 15: CSV times are ISO 8601 +08:00 whatever the locale; table is 24 h', async () => {
   const firstTime = {};
   for (const locale of ['en-US', 'de-DE']) await withPage({ locale, level: 1 }, async (L) => {
-    await L.click('#startBtn'); await L.run(2 * MIN);
-    await L.click('#exportBtn'); await L.run(300);
+    await L.run(4500); await L.run(2 * MIN);
+    await L.click('#stopBtn'); await L.click('#stopYes'); await L.run(300);   // v15: Save CSV lives in the Done band
     await waitFor(() => L.downloads.some(d => d.name.endsWith('.csv') && d.text != null));
     const csv = L.downloads.find(d => d.name.endsWith('.csv')).text;
     firstTime[locale] = csv.split('\r\n')[1].split(',')[0];
@@ -385,14 +394,22 @@ test('bug 16a (logger): hidden 5 min → ≤ 10 timer wakeups (30 s poll, heartb
   assert.ok(p.timerFires <= 10, `${p.timerFires} wakeups ${JSON.stringify(p.timerFiresByMs)}`);
   assert.equal(p.mutations, 0, 'nothing changed, nothing written to the DOM');
 }));
-test('bug 16a (logger): visible → no 1-second timer (5 s poll only)', () => withExe(new FakeExe(), {}, async (L) => {
+test('bug 16a (logger): Logging, visible → 5 s polls + the 1 s elapsed tick only (E7)', () => { const exe = new FakeExe(); return withExe(exe, {}, async (L) => {
+  exe.post('/api/start'); exe.unplug(); await L.step(5000);
   await L.resetProbe(); await L.step(MIN);
   const p = await L.probe();
-  assert.ok(p.timerFires <= 13, `${p.timerFires} wakeups ${JSON.stringify(p.timerFiresByMs)}`);
-  assert.ok(!p.timerFiresByMs['1000']);
-}));
+  assert.ok(p.timerFires <= 75, `${p.timerFires} wakeups ${JSON.stringify(p.timerFiresByMs)}`);
+  assert.ok((p.timerFiresByMs['5000'] || 0) <= 13, 'polls every 5 s');
+}); });
+test('bug 16a (logger): Logging, hidden 5 min → no 1 s tick, 30 s polls only', () => { const exe = new FakeExe(); return withExe(exe, {}, async (L) => {
+  exe.post('/api/start'); exe.unplug(); await L.step(5000);
+  await L.hide(); await L.resetProbe(); await L.step(5 * MIN);
+  const p = await L.probe();
+  assert.ok(p.timerFires <= 12, `${p.timerFires} wakeups ${JSON.stringify(p.timerFiresByMs)}`);
+  assert.ok(!p.timerFiresByMs['1000'], 'no 1 s tick while hidden');
+}); });
 test('bug 16b: storage does not grow with the log (no localStorage; v13 key untouched)', () => withPage({ level: 1, storage: { BatteryTestResultW7: 'old v13 log' } }, async (L) => {
-  await L.click('#startBtn'); await L.run(120 * MIN);
+  await L.run(4500); await L.run(120 * MIN);
   await L.resetProbe(); await L.run(MIN);
   const p = await L.probe();
   assert.equal(p.storageWrites, 0);
@@ -404,6 +421,7 @@ test('bug 16b: storage does not grow with the log (no localStorage; v13 key unto
 test('bug 17a: alarm % is a setting, 10–50, sent to the exe', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
+    exe.post('/api/start'); exe.unplug(); await L.step(5000);
     const el = L.page.locator('#alarmPct');
     assert.equal(await el.getAttribute('min'), '10'); assert.equal(await el.getAttribute('max'), '50');
     await el.fill('20'); await el.press('Tab'); await L.run(100);
@@ -416,7 +434,7 @@ test('bug 17a: alarm % is a setting, 10–50, sent to the exe', () => {
 test('bug 17b: the alarm is a soft sine (gain 0.2), not a full-volume sawtooth', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); exe.unplug(); exe.drain(15); exe.end('alarm'); await L.step(6000);
+    exe.post('/api/start'); exe.unplug(); exe.drain(15); exe.end('alarm'); await L.step(6000);
     const { audio } = await L.probe();
     assert.ok(audio.oscTypes.length && audio.oscTypes.every(t => t === 'sine'), `${audio.oscTypes}`);
     assert.ok(audio.maxGain <= 0.2 + 1e-9 && audio.maxGain > 0, `gain ${audio.maxGain}`);
@@ -427,7 +445,7 @@ test('bug 17b: the alarm is a soft sine (gain 0.2), not a full-volume sawtooth',
 test('token: read from #t=, removed from the URL, sent as X-Laptap-Token on every /api call', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); await L.step(6000);
+    exe.post('/api/start'); exe.unplug(); await L.step(6000);
     assert.doesNotMatch(L.page.url(), /#t=|a1b2c3/);
     const apiCalls = exe.calls.filter(c => c.p.startsWith('/api/'));
     assert.ok(apiCalls.length >= 3);
@@ -436,11 +454,13 @@ test('token: read from #t=, removed from the URL, sent as X-Laptap-Token on ever
     assert.ok(exe.calls.some(c => c.p === '/api/state' && /since=\d+/.test(c.q)));
   });
 });
-test('Start below 96% → the exe\'s message, nothing starts', () => {
+test('below 96%: the checklist says "Charge to 96% or more (now 95%)" and nothing starts', () => {
   const exe = new FakeExe({ pct: 95, ac: false });
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); await L.run(100);
-    assert.equal(await txt(L, '#startMsg'), 'Charge to at least 96% first.');
+    await L.step(5000);
+    assert.equal(await txt(L, '#cPctT'), 'Charge to 96% or more (now 95%)');
+    assert.ok(!(await L.page.isVisible('#bCount')) && !(await L.page.isVisible('#bLog')));
+    assert.ok(!exe.calls.some(c => c.p === '/api/start'), 'the page never asks to start');
     assert.equal(exe.S, null);
   });
 });
@@ -448,13 +468,15 @@ test('model name with <script> is escaped on the page', () => withExe(new FakeEx
   assert.equal(await L.page.locator('#unit img').count(), 0);
   assert.match(await txt(L, '#unit'), /<img src=x/);
 }));
-test('waiting for unplug, then ETA "About h:mm to alarm" after 5+ samples', () => {
+test('plugged in → checklist; unplugged → LOGGING "Measuring…", then "About h:mm to alarm" after 5+ samples', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); await L.step(5000);
-    assert.equal(await txt(L, '#eta'), 'Waiting for unplug');
+    exe.post('/api/start'); await L.step(5000);
+    assert.ok(await L.page.isVisible('#bReady'), 'still Ready while plugged in');
+    assert.equal(await txt(L, '#cAcT'), 'Charger unplugged');
     exe.unplug(); await L.step(5000);
     assert.equal(await txt(L, '#eta'), 'Measuring…');
+    assert.equal(await txt(L, '#bigWord'), 'LOGGING');
     for (let i = 1; i <= 6; i++) { exe.at += MIN; exe.drain(100 - i); }
     await L.step(5000);
     assert.match(await txt(L, '#eta'), /^About \d+:\d\d to alarm$/);
@@ -468,7 +490,7 @@ test('contract: a finished test renders every stat and Result field (no blanks)'
     { id: '1', maker: 'SMP', chemistry: 'LIon', designMwh: 23000, fullMwh: 20000, cycles: 120 },
     { id: '2', maker: 'LGC', chemistry: 'LIon', designMwh: 24000, fullMwh: 26000, cycles: null }] });
   return withExe(exe, {}, async (L) => {
-    await L.click('#startBtn'); exe.unplug(); await L.step(5000);
+    exe.post('/api/start'); exe.unplug(); await L.step(5000);
     for (let i = 1; i <= 6; i++) { exe.at += 10 * MIN; exe.drain(98 - i * 3); }
     exe.gap(20); exe.drain(70); exe.plug(); exe.at += 5 * MIN; exe.unplug(); exe.drain(15); exe.end('alarm');
     await L.step(6000);
@@ -476,13 +498,10 @@ test('contract: a finished test renders every stat and Result field (no blanks)'
     const bad = /undefined|NaN|null|\[object/;
     const body = await L.page.locator('body').innerText();
     assert.doesNotMatch(body, bad, 'a raw value leaked onto the page');
-    for (const id of ['#pct', '#health', '#watts', '#elapsed', '#pctSub', '#healthSub', '#wattsSub', '#eta', '#unit'])
+    for (const id of ['#pct', '#health', '#watts', '#pctSub', '#healthSub', '#wattsSub', '#unit', '#resV', '#resS', '#doneSub'])
       assert.ok((await txt(L, id)).trim().length > 0, `${id} is blank`);
-    const cells = await L.page.locator('#reportBox .kv div span:last-child').allInnerTexts();
-    assert.ok(cells.length >= 6, `result cells: ${cells.length}`);
-    cells.forEach((c, i) => assert.ok(c.trim().length > 0, `result cell ${i} blank`));
-    const card = await txt(L, '#reportBox');
-    assert.match(card, /Ended at alarm/); assert.match(card, /Battery 5CB4190FVX 2026-11-26 0900\.html/);
+    assert.match(await txt(L, '#doneSub'), /^Ended at alarm · report saved to the Desktop$/);
+    assert.match(await txt(L, '#resS'), /% → 15%/);
     assert.match(await txt(L, '#health'), /^(\d+\.\d%|100\.0%)$/);
     const ev = await L.page.locator('#rows tr td:nth-child(2)').allInnerTexts();
     ev.forEach((t, i) => assert.ok(t.trim().length > 0, `table row ${i} has no event label`));

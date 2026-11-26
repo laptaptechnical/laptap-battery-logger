@@ -1,4 +1,4 @@
-// Battery-Logger/v14/src/Battery.cs
+// src/Battery.cs
 // Windows battery data without admin:
 //  - static: powercfg /batteryreport /xml (design/full/cycles per battery), WMI unit + serial, brightness, plan, saver;
 //  - live: GetSystemPowerStatus every second, WMI root\wmi:BatteryStatus for a full sample.

@@ -1,23 +1,33 @@
 # Laptap Battery Logger
 
 A battery run-down tester for Laptap's secondhand laptops. It is a single `Laptap Battery Logger.exe` that staff copy
-and double-click: no installer, no admin rights, no internet.
+and double-click: no installer, no admin rights.
 
 The exe reads Windows' real battery data: design and full capacity, health, mWh, watts, and the sleep and wake events
 in the System log. It keeps the laptop awake while a test runs. It serves its own page to an Edge app window and saves
 an HTML report and a CSV to the Desktop when the test ends.
 
-Version: see `VERSION`.
+- **Start:** no Start button in the normal flow. A checklist (battery found · charged to 96% or more · charger
+  unplugged), then "All conditions are met, starting logging in 3.. 2.. 1..", then a big LOGGING band.
+- **Live log:** every reading and event appears the moment it's taken, newest first, and the whole test can be scrolled.
+- **Self-update** (from v15): signed releases from this repo's GitHub Releases, downloaded quietly in the background
+  and swapped in at the next start, never during a test. See [docs/HOW-TO-RELEASE.md](docs/HOW-TO-RELEASE.md).
+
+Version: `VERSION` (`version=` and `release=`) is the only place it is written. `build.ps1` generates
+`src/Version.g.cs` and `src/app.manifest` from it, and fails if a version literal appears anywhere else in `src/`.
 
 ## Layout
 
 | Path | What |
 |---|---|
 | `src/*.cs` | The exe (C# 5, built with the .NET Framework `csc` that ships with Windows) |
+| `src/Update*.cs` | Self-update: signed manifest, background check + download, swap + hand-off at the next start |
 | `src/web/index.html`, `src/web/logic.js` | The page and its pure rules. Both are embedded in the exe. The page also holds the report `<template>` |
-| `tests/` | `logic.test.js` (node), `HelperTests.cs` (C# console tests), shared `fixtures/` |
+| `tests/` | `logic.test.js` (node), `HelperTests.cs` + `V15Tests.cs` (C# console tests), `e2e-update.mjs`, shared `fixtures/` |
 | `test/` | Headless page harness: a fake battery, a fake clock and a mocked exe API |
-| `build.ps1` | Tests, compile, PE flags, size check |
+| `tools/` | `keys.ps1` (owner's signing keys), `release.ps1` (signed release), `KeyTools.cs` (their crypto) |
+| `docs/` | `api-contract.md` (page ↔ exe), `HOW-TO-RELEASE.md` (owner's recipe) |
+| `build.ps1` | Version, tests, compile, PE flags, version / test-hook checks, size check |
 
 ## Build
 
@@ -25,11 +35,16 @@ Version: see `VERSION`.
 .\build.ps1
 ```
 
-This runs the node tests, compiles `dist\Laptap Battery Logger.exe` with
-`%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe`, and sets the run-from-removable-media PE flags. It then
-compiles and runs `tests\bin\HelperTests.exe` and checks that `dist\` holds exactly one file under 400 KB.
+This generates the version files, runs the node tests, compiles `dist\Laptap Battery Logger.exe` with
+`%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe`, and sets the run-from-removable-media PE flags. It then checks
+that the FileVersion matches `VERSION` and that the release exe holds no test hooks. Last, it compiles and runs
+`tests\bin\HelperTests.exe` and checks that `dist\` holds exactly one file under 400 KB.
 
-Use `.\build.ps1 -Out dist-next` to build somewhere other than `dist\`. Nothing is installed.
+- A build refuses to run unless `src\UpdateKeys.cs` holds the owner's 2 signing keys; an exe without them could
+  never self-update. `.\build.ps1 -AllowNoKeys` makes a dev-only build that must never be handed out.
+- `.\build.ps1 -Out dist-next` builds somewhere other than `dist\`.
+- `-TestHooks -Version x.y.z -Release n -SkipTests` are for the update tests only.
+- Nothing is installed.
 
 ## Test
 
@@ -44,6 +59,10 @@ node --test --test-concurrency=1 test/
 ```
 
 ```powershell
+node tests/e2e-update.mjs
+```
+
+```powershell
 node test/measure-bar.mjs
 ```
 
@@ -52,8 +71,10 @@ node test/measure-idle.mjs
 ```
 
 - `node --test tests/` runs the `logic.js` rules (also run by `build.ps1`).
-- `node --test --test-concurrency=1 test/` runs the harness self-test, the v14 page suite and the fix tests.
-- `node test/measure-bar.mjs` checks where the action bar sits at 1024×600.
+- `node --test --test-concurrency=1 test/` runs the harness self-test, the page suites and the v15 flow / log suites.
+- `node tests/e2e-update.mjs` is the local self-update run. It uses loopback and temp folders only, with a throwaway
+  test key, a `TESTHOOKS` exe, its own data folder and its own mutex names.
+- `node test/measure-bar.mjs` checks the layout at 1024×600: the band buttons are on screen and the log gets ≥ 180 px.
 - `node test/measure-idle.mjs` measures timer, DOM and storage cost. Add `--cpu` for real-time CPU.
 
 The harness uses `playwright-core` and Chromium headless shell that are already on the PC; it installs nothing. By
@@ -62,9 +83,18 @@ Set `PW_CORE` or `PW_CHROME` to point elsewhere. Tests run headless and muted, a
 
 `test/fixtures/v13.html` is the old v13 page. The harness self-test uses it as a known-behaviour control.
 
-## QA-only switches
+## Command line
 
-These are never used by staff, who double-click the exe with no arguments.
+Staff double-click the exe with no arguments.
+
+- `--verify-release <dir> [--keys-file <file>]`: read-only check of a release folder (signature, version, release,
+  exe hash). With `--keys-file` ("X:Y" hex per line) the signature is checked against those keys: the keys the
+  laptops in the field have now. Exit 0 = good. Used by `tools\release.ps1`.
+- `--self-test`: loads the page, builds the engine, starts and stops the local server, and reads its state back.
+  Exit 0 = good. `tools\release.ps1` runs it before signing.
+- `--updated <nonce>`, `--no-update`: internal, used by the update hand-off and rollback.
+
+QA only:
 
 - `--qa-no-window`: opens no Edge window, report or message box.
 - `--qa-out <dir>`: writes the report and CSV to `<dir>` instead of the Desktop.

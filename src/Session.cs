@@ -1,4 +1,4 @@
-// Battery-Logger/v14/src/Session.cs
+// src/Session.cs
 // A test's life (plan §3.4): start, counted segments, charger pauses, sleep gaps, alarm, end, recovery.
 // Everything here runs on the MAIN thread only (it owns keep-awake and is the only writer of the session).
 using System;
@@ -27,8 +27,7 @@ public class EventRow
 
 public class SessionData
 {
-    public string Id, Status = "waiting", Version = "14.0.0";
-    public long? WaitingSinceMs;
+    public string Id, Status = "running", Version = AppVersion.Version;
     public int AlarmPct = 15;
     public long StartedMs;
     public long? UnplugMs, EndMs, LastSampleMs;
@@ -164,6 +163,25 @@ public static class PowerEvents
     }
 }
 
+// ---------- hardware seam: the real Windows calls; tests swap in a fake battery ----------
+public class Hardware
+{
+    public virtual bool PowerStatus(out bool ac, out double? pct, out bool saver, out bool present, out bool critical)
+    { return Battery.PowerStatus(out ac, out pct, out saver, out present, out critical); }
+    public virtual Sample ReadLive(double? fullMwh) { return Battery.ReadLive(fullMwh); }
+    public virtual StaticInfo ReadStatic(bool fullReport) { return Battery.ReadStatic(fullReport); }
+    public virtual Dictionary<string, double?> ReadFullByInstance() { return Battery.ReadFullByInstance(); }
+    public virtual double? ReadBrightness() { return Battery.ReadBrightness(); }
+    public virtual List<PowerEvent> Events(long fromMs, long toMs) { return PowerEvents.Read(fromMs, toMs); }
+    public virtual void KeepAwake(bool on)
+    {
+        // Set and cleared on the main thread only (M3 of the v14 plan audit).
+        Native.SetThreadExecutionState(on ? (Native.ES_CONTINUOUS | Native.ES_SYSTEM_REQUIRED | Native.ES_DISPLAY_REQUIRED) : Native.ES_CONTINUOUS);
+    }
+    public virtual string ExecState() { return Native.ExecutionStateText(Native.ExecutionState()); }
+    public virtual long Now() { return Rules.NowMs(); }
+}
+
 // ---------- the engine ----------
 public class Engine
 {
@@ -180,6 +198,23 @@ public class Engine
     public Action OpenWindow = delegate { };
     public Action<string> OpenFile = delegate { };
     public string IndexHtml = "";
+    public Hardware Hw = new Hardware();
+
+    // ---- v15 start flow (plan §3): the exe owns checks, arming and the countdown ----
+    public Func<long> LastPollMs = delegate { return 0; };   // last GET /api/state (set by the server)
+    public bool Armed = true;
+    public long? CountdownEndsMs;
+    public const int CountdownMs = 3000;
+    Sample latch;                 // the reading at the unplug edge (E6)
+    bool latchUsable;             // no Cancel since that unplug
+    bool latchExpired;            // S1: after Cancel, or a latch > 60 s old: judge and start on the current reading
+    public const long LatchMaxAgeMs = 60000;
+    bool cBattery, cPct96, cUnplugged, cCapHint;
+    double? capPct; long capSinceMs;
+    string stateKey = "";
+    public string UpdatedFrom;    // set for the whole run after an update
+    public volatile bool RequestPublish;   // set by the update thread; the main loop publishes
+    public bool CountdownDue() { return CountdownEndsMs.HasValue && Hw.Now() >= CountdownEndsMs.Value; }
 
     long rev;
     bool? lastAc;
@@ -202,9 +237,9 @@ public class Engine
     // ---------- 1 s tick (plan §3.3) ----------
     public void Tick()
     {
-        long now = Rules.NowMs();
+        long now = Hw.Now();
         bool ac, saver, present, crit; double? pct;
-        Battery.PowerStatus(out ac, out pct, out saver, out present, out crit);
+        Hw.PowerStatus(out ac, out pct, out saver, out present, out crit);
         bool changed = false;
 
         if (Active && lastTickMs > 0)
@@ -236,13 +271,73 @@ public class Engine
         }
         else if (now - LastHeartbeatMs < 120000 && now - lastFullMs >= 60000) { DisplaySample(); changed = true; }
 
+        changed |= StartFlow(now, ac, pct, present);
         AlarmFallback(now);
         if (changed) Publish();
     }
 
+    // Ready = no session showing. Done = a finished (or recovered) test is showing until New test.
+    public bool IsReady { get { return S == null; } }
+
+    // Checks, latch, countdown. True if anything the page shows changed.
+    bool StartFlow(long now, bool ac, double? pct, bool present)
+    {
+        cBattery = present;
+        cUnplugged = !ac;
+        if (ac)
+        {
+            cPct96 = Rules.CanStart(pct);
+            // I10: plugged in below 96% with a flat % for 10 min → hint at a charge-limit setting.
+            if (pct.HasValue && pct.Value < 96)
+            {
+                if (!capPct.HasValue || capPct.Value != pct.Value) { capPct = pct; capSinceMs = now; }
+                cCapHint = now - capSinceMs >= 10 * 60000L;
+            }
+            else { capPct = null; cCapHint = false; }
+        }
+        else
+        {
+            // E6: judged at the unplug moment. Launched already unplugged: the first reading stands in for it.
+            // S1: a latch is only good for 60 s before the countdown begins (an unwatched, minimised or sleeping laptop
+            // must not start from an old unplug, nor count that time as runtime).
+            if (latch != null && IsReady && !CountdownEndsMs.HasValue && now - latch.Ms > LatchMaxAgeMs) { latch = null; latchUsable = false; latchExpired = true; }
+            if (latch == null && !latchExpired && IsReady && pct.HasValue) { latch = Hw.ReadLive(FullMwh()); if (!latch.Pct.HasValue) latch.Pct = pct; latchUsable = true; }
+            cPct96 = latch != null ? Rules.CanStart(latch.Pct) : Rules.CanStart(pct);
+            capPct = null; cCapHint = false;
+        }
+        bool all = cBattery && cPct96 && cUnplugged;
+        if (IsReady)
+        {
+            bool watched = now - LastPollMs() <= 3000;
+            if (CountdownEndsMs.HasValue)
+            {
+                if (!all || !Armed) CountdownEndsMs = null;   // a check dropped → back to Ready
+                else if (now >= CountdownEndsMs.Value)
+                {
+                    CountdownEndsMs = null;
+                    StartTest(latchUsable && latch != null);
+                }
+            }
+            else if (Armed && all && watched) CountdownEndsMs = now + CountdownMs;
+        }
+        else CountdownEndsMs = null;
+        string key = cBattery + "|" + cPct96 + "|" + cUnplugged + "|" + cCapHint + "|" + Armed + "|" + CountdownEndsMs + "|" + pct + "|" + ac + "|" + (S == null ? "-" : S.Status);
+        bool changed = key != stateKey;
+        stateKey = key;
+        return changed;
+    }
+
+    // How long the main loop may sleep: wake for the countdown's end.
+    public int WaitMs()
+    {
+        if (!CountdownEndsMs.HasValue) return 1000;
+        long left = CountdownEndsMs.Value - Hw.Now();
+        return (int)Math.Max(20, Math.Min(1000, left));
+    }
+
     public bool ShouldExit()
     {
-        long now = Rules.NowMs();
+        long now = Hw.Now();
         if (Active) return false;
         if (S != null && S.Alarm && !S.AlarmAck && S.EndMs.HasValue && now - S.EndMs.Value < 31 * 60000L) return false;
         return now - Math.Max(LastHeartbeatMs, LaunchMs) > 180000;
@@ -266,13 +361,13 @@ public class Engine
 
     void DisplaySample()
     {
-        Latest = Battery.ReadLive(FullMwh());
+        Latest = Hw.ReadLive(FullMwh());
         lastFullMs = Latest.Ms; curCharging = Latest.Charging;
     }
 
     Sample FullSample(string ev)
     {
-        Sample s = Battery.ReadLive(FullMwh());
+        Sample s = Hw.ReadLive(FullMwh());
         lastFullMs = s.Ms; curCharging = s.Charging;
         if (!s.Ac && !s.RateMw.HasValue && S != null && S.OpenSeg != null && s.Mwh.HasValue)
         {
@@ -354,7 +449,7 @@ public class Engine
     void AddEvent(string type, string label, string kind, Sample s, string note, long? fromMs, long? toMs)
     {
         if (S == null) return;
-        long now = s != null ? s.Ms : Rules.NowMs();
+        long now = s != null ? s.Ms : Hw.Now();
         EventRow e = new EventRow();
         e.Ms = now; e.Type = type; e.Label = label; e.Kind = kind; e.Rev = ++rev; e.Note = note ?? ""; e.FromMs = fromMs; e.ToMs = toMs;
         e.ElapsedS = Math.Round(S.CountedNow(now));
@@ -415,17 +510,19 @@ public class Engine
 
     void OnAcChange(bool ac)
     {
-        if (!Active) { if (S == null || S.Status == "done") DisplaySample(); return; }
+        if (!Active)
+        {
+            DisplaySample();
+            if (IsReady)
+            {
+                if (!ac) { latch = Latest; latchUsable = true; latchExpired = false; }   // E6: latch {ms, pct, mwh} at the unplug edge
+                else { latch = null; latchUsable = false; latchExpired = false; }       // re-plugging clears it
+            }
+            return;
+        }
         if (!ac)
         {
-            if (S.Status == "waiting")
-            {
-                Sample s = FullSample("unplugged");
-                S.UnplugMs = s.Ms; S.StartPct = s.Pct; S.StartMwh = s.Mwh; S.Status = "running"; S.WaitingSinceMs = null;
-                OpenSegment(s);
-                AddEvent("unplugged", "Unplugged", "ev", s);
-            }
-            else if (S.Status == "paused")
+            if (S.Status == "paused")
             {
                 Sample s = FullSample("charger_out");
                 if (S.Pauses.Count > 0 && !S.Pauses[S.Pauses.Count - 1].ToMs.HasValue) S.Pauses[S.Pauses.Count - 1].ToMs = s.Ms;
@@ -445,7 +542,7 @@ public class Engine
         }
     }
 
-    string GapReason(long from, long to) { return PowerEvents.ClassifyGap(PowerEvents.Read(from - 60000, to + 60000)); }
+    string GapReason(long from, long to) { return PowerEvents.ClassifyGap(Hw.Events(from - 60000, to + 60000)); }
     static string GapLabel(long from, long to, string why)
     {
         return "Gap " + Rules.FmtHm((to - from) / 1000.0) + " · " + (why == "unknown" ? "unknown" : "laptop " + why);
@@ -455,7 +552,7 @@ public class Engine
     {
         long segEnd = S.LastSampleMs.HasValue ? S.LastSampleMs.Value : fromMs;
         CloseSegment(segEnd, S.LastPct, S.LastMwh);
-        List<PowerEvent> evs = PowerEvents.Read(fromMs - 60000, toMs + 60000);
+        List<PowerEvent> evs = Hw.Events(fromMs - 60000, toMs + 60000);
         string reason = PowerEvents.ClassifyGap(evs);
         GapInfo g = new GapInfo(); g.FromMs = fromMs; g.ToMs = toMs; g.Reason = reason; S.Gaps.Add(g);
         AddEvent("gap", GapLabel(fromMs, toMs, reason), "gap", null, reason, fromMs, toMs);
@@ -477,8 +574,23 @@ public class Engine
         r["ok"] = true;
         switch (name)
         {
-            case "heartbeat": LastHeartbeatMs = Rules.NowMs(); break;
-            case "start": { string err = Start(); if (err != null) { r["ok"] = false; r["error"] = err; } break; }
+            case "heartbeat": LastHeartbeatMs = Hw.Now(); break;
+#if TESTHOOKS
+            case "start": { string err = StartNow(); if (err != null) { r["ok"] = false; r["error"] = err; } break; }   // test hook only
+#endif
+            case "arm":
+                if (!IsReady) { r["ok"] = false; r["error"] = Active ? "A test is already running." : "Press New test first."; break; }
+                Armed = true; CountdownEndsMs = null;
+                break;
+            case "cancel":
+                if (!IsReady || !CountdownEndsMs.HasValue) { r["ok"] = false; r["error"] = Active ? "A test is already running." : "No countdown is running."; break; }
+                CountdownEndsMs = null; Armed = false; latch = null; latchUsable = false; latchExpired = true;   // S1
+                break;
+            case "new":
+                if (S == null || S.Status != "done") { r["ok"] = false; r["error"] = Active ? "A test is already running." : "No finished test is showing."; break; }
+                S = null; Samples = new List<Sample>(); sampleDicts.Clear(); eventDicts.Clear(); Armed = true; CountdownEndsMs = null;
+                latch = null; latchUsable = false; latchExpired = false;   // the next test is judged from a fresh unplug (or the current reading)
+                break;
             case "stop": if (Active) End("stop", true); else { r["ok"] = false; r["error"] = "No test is running."; } break;
             case "ack-alarm": AckAlarm(); break;
             case "alarm-pct":
@@ -515,49 +627,75 @@ public class Engine
         if (!was && S.Alarm && S.Status == "done") Report.Resave(this);   // I1
     }
 
-    string Start()
+#if TESTHOOKS
+    // Test hook: start at once if the checks pass (the page never calls this).
+    string StartNow()
     {
         if (Active) return "A test is already running.";
+        if (S != null) return "Press New test first.";
         bool ac, saver, present, crit; double? pct;
-        Battery.PowerStatus(out ac, out pct, out saver, out present, out crit);
+        Hw.PowerStatus(out ac, out pct, out saver, out present, out crit);
         if (!present) return "No battery found on this computer.";
-        if (!Rules.CanStart(pct)) return "Charge to at least 96% first.";
+        if (ac) return "Unplug the charger first.";
+        if (!Rules.CanStart(latch != null ? latch.Pct : pct)) return "Charge to at least 96% first.";
+        StartTest(latchUsable && latch != null);
+        return null;
+    }
+#endif
 
-        StaticInfo si = Battery.ReadStatic(true);
+    // The countdown reached 0 with every check met. fromLatch: segment 1 begins at the unplug reading (E6).
+    void StartTest(bool fromLatch)
+    {
+        bool ac, saver, present, crit; double? pct;
+        Hw.PowerStatus(out ac, out pct, out saver, out present, out crit);
+        StaticInfo si = Hw.ReadStatic(true);
         Info = si;
         if (csv != null) { try { csv.Dispose(); } catch { } csv = null; }
         S = new SessionData();
-        S.Id = DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-        S.StartedMs = Rules.NowMs(); S.AlarmPct = AlarmPct; S.StartInfo = si;
+        S.Id = Rules.ToLocal(Hw.Now()).ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
+        S.StartedMs = Hw.Now(); S.AlarmPct = AlarmPct; S.StartInfo = si; S.Status = "running";
         S.BrightnessStart = si.Brightness; S.SaverAtStart = si.Saver;
-        if (si.Saver) S.SaverOnPct = pct;
         Samples.Clear(); sampleDicts.Clear(); eventDicts.Clear(); reopened = false;
         string dir = Path.Combine(SessionsDir, S.Id);
         Directory.CreateDirectory(dir);
         OpenCsv(dir, true);
-        SaveSession();
 
-        Native.SetThreadExecutionState(Native.ES_CONTINUOUS | Native.ES_SYSTEM_REQUIRED | Native.ES_DISPLAY_REQUIRED);
+        Hw.KeepAwake(true);
         keepAwake = true;
-        S.ExecStart = Native.ExecutionStateText(Native.ExecutionState());
+        S.ExecStart = Hw.ExecState();
 
-        Sample s = FullSample("start");
-        AddEvent("start", "Test started", "ev", s);
-        if (ac) { S.Status = "waiting"; S.WaitingSinceMs = s.Ms; AddEvent("waiting_unplug", "Waiting for unplug", "ev", s); }
+        Sample first;
+        if (fromLatch)
+        {
+            // Segment 1 starts at the latched unplug reading; it goes into the log and CSV as the "unplugged" row.
+            first = latch;
+            first.ElapsedS = 0; first.Event = "unplugged"; first.Rev = ++rev;
+            Samples.Add(first); sampleDicts.Add(SampleDict(first));
+            S.LastSampleMs = first.Ms; S.LastPct = first.Pct; S.LastMwh = first.Mwh;
+            S.UnplugMs = first.Ms; S.StartPct = first.Pct; S.StartMwh = first.Mwh;
+            OpenSegment(first);
+            AddEvent("unplugged", "Unplugged", "ev", first);
+            Sample now = FullSample("start");
+            AddEvent("start", "Test started", "ev", now);
+        }
         else
         {
-            S.Status = "running"; S.UnplugMs = s.Ms; S.StartPct = s.Pct; S.StartMwh = s.Mwh;
-            OpenSegment(s);
-            SaveSession();
+            first = FullSample("start");
+            S.UnplugMs = first.Ms; S.StartPct = first.Pct; S.StartMwh = first.Mwh;
+            OpenSegment(first);
+            AddEvent("start", "Test started", "ev", first);
         }
+        if (si.Saver) S.SaverOnPct = S.StartPct;
+        if (S.StartInfo != null) S.StartInfo.Saver = si.Saver;
+        latch = null; latchUsable = false;
         lastSaver = saver;
-        return null;
+        SaveSession();
     }
 
     public void End(string kind, bool live)
     {
         if (S == null || S.Status == "done") return;
-        long now = live ? Rules.NowMs() : (S.LastSampleMs ?? Rules.NowMs());
+        long now = live ? Hw.Now() : (S.LastSampleMs ?? Hw.Now());
         if (S.OpenSeg != null)
         {
             if (live && Latest != null && Latest.Ms >= S.OpenSeg.StartMs) CloseSegment(Latest.Ms, Latest.Pct, Latest.Mwh);
@@ -579,14 +717,14 @@ public class Engine
 
         if (live && keepAwake)
         {
-            Native.SetThreadExecutionState(Native.ES_CONTINUOUS);   // same (main) thread that set it
+            Hw.KeepAwake(false);   // same (main) thread that set it
             keepAwake = false;
-            S.ExecEnd = Native.ExecutionStateText(Native.ExecutionState());
+            S.ExecEnd = Hw.ExecState();
         }
         if (live)
         {
-            S.EndFull = Battery.ReadFullByInstance();
-            S.BrightnessEnd = Battery.ReadBrightness();
+            S.EndFull = Hw.ReadFullByInstance();
+            S.BrightnessEnd = Hw.ReadBrightness();
         }
         string[] paths = Report.SaveAll(this);
         if (paths != null)
@@ -617,8 +755,14 @@ public class Engine
                 string f = Path.Combine(dir, "session.json");
                 if (!File.Exists(f)) continue;
                 SessionData d;
-                try { d = json.Deserialize<SessionData>(File.ReadAllText(f)); } catch { continue; }
-                if (d == null || d.Status == "done") continue;
+                try { d = json.Deserialize<SessionData>(File.ReadAllText(f)); } catch { d = null; }
+                if (d == null)
+                {
+                    // U4: an unreadable session.json is set aside, so it can't block updates forever.
+                    try { File.Move(f, f + ".bad"); Updater.Log("unreadable " + f + " renamed .bad"); } catch { }
+                    continue;
+                }
+                if (d.Status == "done") continue;
                 S = d;
                 Samples = ReadSamplesCsv(Path.Combine(dir, "samples.csv"));
                 sampleDicts.Clear();
@@ -631,7 +775,7 @@ public class Engine
                     if (!S.LastSampleMs.HasValue || last.Ms > S.LastSampleMs.Value) { S.LastSampleMs = last.Ms; S.LastPct = last.Pct; S.LastMwh = last.Mwh; }
                 }
                 long from = S.LastSampleMs ?? S.StartedMs;
-                string kind = PowerEvents.ClassifyRecovery(PowerEvents.Read(from - 60000, Rules.NowMs()));
+                string kind = PowerEvents.ClassifyRecovery(Hw.Events(from - 60000, Hw.Now()));
                 try { OpenCsv(dir, false); } catch { }
                 End(kind, false);
                 if (csv != null) { try { csv.Dispose(); } catch { } csv = null; }
@@ -686,7 +830,15 @@ public class Engine
     public void Publish()
     {
         Dictionary<string, object> d = new Dictionary<string, object>();
-        d["rev"] = rev; d["version"] = "14.0.0";
+        d["rev"] = rev; d["version"] = AppVersion.Version;
+        Dictionary<string, object> ck = new Dictionary<string, object>();
+        ck["battery"] = cBattery; ck["pct96"] = cPct96; ck["unplugged"] = cUnplugged; ck["chargeLimitHint"] = cCapHint;
+        d["checks"] = ck;
+        d["armed"] = Armed;
+        d["countdownEndsMs"] = CountdownEndsMs;
+        Dictionary<string, object> app = new Dictionary<string, object>();
+        app["version"] = AppVersion.Version; app["release"] = AppVersion.Release; app["updatedFrom"] = UpdatedFrom; app["updateNote"] = Updater.Note;
+        d["app"] = app;
         StaticInfo si = (S != null && S.StartInfo != null) ? S.StartInfo : Info;
         Dictionary<string, object> unit = new Dictionary<string, object>();
         unit["maker"] = si.Manufacturer; unit["model"] = si.Model;
@@ -703,7 +855,6 @@ public class Engine
         {
             Dictionary<string, object> ss = new Dictionary<string, object>();
             ss["id"] = S.Id; ss["status"] = S.Status; ss["startedMs"] = S.StartedMs;
-            ss["waitingSinceMs"] = S.Status == "waiting" ? S.WaitingSinceMs : null;
             ss["alarmPct"] = S.AlarmPct; ss["alarmPctMax"] = AlarmPctMax; ss["alarm"] = S.Alarm; ss["alarmAck"] = S.AlarmAck;
             List<object> segs = new List<object>();
             foreach (Seg g in S.Segments) segs.Add(SegDict(g, true));
