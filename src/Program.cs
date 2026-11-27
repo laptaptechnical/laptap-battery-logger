@@ -13,14 +13,41 @@ using System.Threading;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("Laptap Battery Logger")]
-[assembly: AssemblyProduct("Laptap Battery Logger")]
+#if TESTHOOKS
+[assembly: AssemblyTitle("Laptap Enterprises, Inc. - Battery Logger v" + AppVersion.Version + " --test")]
+[assembly: AssemblyProduct("Laptap Enterprises, Inc. - Battery Logger v" + AppVersion.Version + " --test")]
+#else
+[assembly: AssemblyTitle("Laptap Enterprises, Inc. - Battery Logger v" + AppVersion.Version + " --stable")]
+[assembly: AssemblyProduct("Laptap Enterprises, Inc. - Battery Logger v" + AppVersion.Version + " --stable")]
+#endif
 [assembly: AssemblyCompany("Laptap Enterprises, Inc.")]
 [assembly: AssemblyDescription("Battery run-down test logger")]
 
 static class Program
 {
-    const string Title = "Battery Logger";
+#if TESTHOOKS
+    const string Title = "Laptap Enterprises, Inc. - Battery Logger v" + AppVersion.Version + " --test";
+#else
+    const string Title = "Laptap Enterprises, Inc. - Battery Logger v" + AppVersion.Version + " --stable";
+#endif
+    static string BuildChannel
+    {
+        get
+        {
+#if TESTHOOKS
+            return "test";
+#else
+            return "stable";
+#endif
+        }
+    }
+
+    static string ChannelizePage(string index)
+    {
+        return index.Replace("<meta name=\"laptap-channel\" content=\"stable\">",
+            "<meta name=\"laptap-channel\" content=\"" + BuildChannel + "\">");
+    }
+
     static Mutex mutex, updateMutex;
     static bool ownsUpdateMutex;
     static Server server;
@@ -120,6 +147,7 @@ static class Program
             if (qaAlarm > 0) en.AlarmPct = qaAlarm;
             string index = Resource("index.html"), logic = Resource("logic.js");   // into memory once (I1)
             if (index == null || logic == null) return Fail("the page is missing from the exe", null);
+            index = ChannelizePage(index);
             en.IndexHtml = index;
 
             server = new Server();
@@ -129,6 +157,7 @@ static class Program
             server.GetApp = en.AppDict;
             // v16 §1/§6: the embedded logo and the packaged video (served from the resource stream, never copied to memory)
             server.LogoSvg = ResourceBytes("brand/logo.svg");
+            server.IconIco = ResourceBytes("brand/favicon.ico");
             server.MediaExt = MediaResource();
             server.OpenMedia = delegate { return server.MediaExt == null ? null : Assembly.GetExecutingAssembly().GetManifestResourceStream("loop." + server.MediaExt); };
             en.MediaInfo = MediaInfoDict(server.MediaExt);
@@ -261,7 +290,8 @@ static class Program
         try
         {
             string index = Resource("index.html"), logic = Resource("logic.js");
-            if (index == null || logic == null || !index.Contains("<template id=\"report\">")) return 2;
+            if (index == null || logic == null || !index.Contains("<template id=\"report\">") || ResourceBytes("brand/favicon.ico") == null) return 2;
+            index = ChannelizePage(index);
             Engine en = new Engine(); en.IndexHtml = index; en.QaNoWindow = true;
             en.Publish();
             s = new Server();

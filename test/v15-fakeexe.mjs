@@ -118,7 +118,7 @@ export class FakeExe {
     return null;
   }
   routes() {
-    const send = (route, status, body, type = 'application/json') => route.fulfill({ status, contentType: type, body: typeof body === 'string' ? body : JSON.stringify(body) });
+    const send = (route, status, body, type = 'application/json') => route.fulfill({ status, contentType: type, body: Buffer.isBuffer(body) ? body : typeof body === 'string' ? body : JSON.stringify(body) });
     return [[`${ORIGIN}/**`, async (route) => {
       this.inflight++;
       try {
@@ -127,6 +127,9 @@ export class FakeExe {
         if (this.down) return await route.abort('connectionrefused');
         if (u.pathname === '/') return await send(route, 200, fs.readFileSync(PAGE, 'utf8'), 'text/html; charset=utf-8');
         if (u.pathname === '/logic.js') return await send(route, 200, fs.readFileSync(path.join(WEB, 'logic.js'), 'utf8'), 'text/javascript');
+        if (u.pathname === '/brand/logo.svg') return await send(route, 200, fs.readFileSync(path.join(WEB, 'brand', 'logo.svg')), 'image/svg+xml');
+        if (u.pathname === '/brand/favicon.ico') return await send(route, 200, fs.readFileSync(path.join(ROOT, 'src', 'laptap.ico')), 'image/x-icon');
+        if (u.pathname === '/media/loop.webm') return await send(route, 200, '', 'video/webm');
         if (!u.pathname.startsWith('/api/')) return await send(route, 404, '', 'text/plain');
         if (req.headers()['x-laptap-token'] !== this.token) return await send(route, 403, '', 'text/plain');
         if (m === 'GET' && u.pathname === '/api/state') { this.lastPollMs = this.at; this.tick(); return await send(route, 200, this.state(+(u.searchParams.get('since') || 0))); }

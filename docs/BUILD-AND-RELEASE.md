@@ -30,43 +30,24 @@ does **not** publish a GitHub release or update staff laptops. A normal build ne
 
 ### Before you start
 
-1. Make sure your changes are committed. The release script stops if Git reports uncommitted changes. Check with:
-
-   ```powershell
-   git status --short
-   ```
-
-   The command should print nothing. If it lists files, review and commit those changes before continuing.
+1. The release command checks for uncommitted changes and lists them. It asks before staging and committing all listed
+   files; review the list and answer **Y** only if you want all of them included in the release.
 2. Make sure the owner's signing key is available on this Windows account. If this is the first release on this PC,
    follow the key setup in [HOW-TO-RELEASE.md](./HOW-TO-RELEASE.md).
-3. The release command below reads `VERSION` and the latest version tag, then automatically increments the patch
-   number. Use it for normal patch releases.
+3. The release command automatically fetches tags and increments the patch number from the latest version. Use it for
+   normal patch releases.
 
 ### Create the release files
 
-Run this block. It fetches the latest tags, chooses the next unused patch version, and starts the release:
+Run this one command. It builds and tests the app, creates the next patch release, and asks whether to push it:
 
 ```powershell
-git fetch --tags
-if ($LASTEXITCODE -ne 0) { throw 'Could not fetch Git tags; refusing to guess the release version.' }
-
-$versionLine = Select-String -Path .\VERSION -Pattern '^version='
-if (-not $versionLine) { throw 'VERSION has no version= entry.' }
-$latest = [version]$versionLine.Line.Split('=')[1]
-foreach ($tag in (git tag --list 'v*')) {
-    if ($tag -match '^v(\d+\.\d+\.\d+)$') {
-        $tagVersion = [version]$Matches[1]
-        if ($tagVersion -gt $latest) { $latest = $tagVersion }
-    }
-}
-$version = '{0}.{1}.{2}' -f $latest.Major, $latest.Minor, ($latest.Build + 1)
-Write-Host "Next release version: $version"
-powershell -ExecutionPolicy Bypass -File .\tools\release.ps1 $version
+powershell -ExecutionPolicy Bypass -File .\tools\release.ps1
 ```
 
-Leave PowerShell open and follow its prompts. The script runs the tests and build, checks that the new app starts,
-signs the update files, updates `VERSION` to the selected version, automatically increments the internal
-`release=` number, then creates a Git commit and matching `v` tag.
+Leave PowerShell open and follow its prompts. After any confirmed changes are committed, the script runs the tests
+and build, checks that the new app starts, signs the update files, updates `VERSION` to the selected version,
+automatically increments the internal `release=` number, then creates a Git commit and matching `v` tag.
 
 When asked `Push to GitHub now? (Y/N)`, type `Y` and press Enter. The script pushes the commit and tag, then opens
 the release folder for the version it selected:

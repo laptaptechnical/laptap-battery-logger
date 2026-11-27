@@ -25,10 +25,11 @@ Your **primary** key stays on this PC, locked to your Windows user. Nobody else 
 
 ## Each update
 
-1. The Manager tells you the version (e.g. `15.0.1`) and sends one command, like
-   `powershell -ExecutionPolicy Bypass -File tools\release.ps1 15.0.1`.
-   It checks that nothing is half-saved, builds and tests everything, signs the release, checks the signature with the
-   new exe, saves the change ("Release v15.0.1") and tags it.
+1. In PowerShell, run `powershell -ExecutionPolicy Bypass -File .\tools\release.ps1`.
+   It automatically picks the next patch version. If there are uncommitted changes, it lists them and asks before
+   staging and committing all of them. Review the list carefully; answer **Y** only if all listed files belong in
+   the release. Then it builds and tests everything, signs the release, checks the signature with the new exe, saves
+   the version and tags the release.
 2. It asks **"Push to GitHub now? (Y/N)"**. Type **Y** and press Enter.
 3. A folder opens with three files: `update.json`, `update.json.sig`, `Laptap-Battery-Logger.exe`.
 4. **First release only:** tell Microsoft the exe is safe (about 10 minutes):
@@ -39,7 +40,7 @@ Your **primary** key stays on this PC, locked to your Windows user. Nobody else 
       "In-house battery test tool for Laptap Enterprises. Updates itself from our public GitHub releases."
    5. Click **Continue**, then **Submit**. Microsoft answers by email, usually within a few days.
 5. On https://github.com/laptaptechnical/laptap-battery-logger click **Releases** → **Draft a new release**.
-6. In "Choose a tag" pick `v15.0.1` (it's already there). Title: `v15.0.1`.
+6. In "Choose a tag" pick the `v` version tag created by the script. Use that same tag as the title.
 7. Drag the three files from the opened folder into the box at the bottom.
 8. Click **Publish release**. Done.
 

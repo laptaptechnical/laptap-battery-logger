@@ -75,6 +75,8 @@ $src = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'src') -Filter *.cs |
 # ---- v16 resources: the real logo (never redrawn) and the packaged video ----
 $logo = Join-Path $PSScriptRoot 'src\web\brand\logo.svg'
 if (-not (Test-Path -LiteralPath $logo)) { throw 'src\web\brand\logo.svg is missing (copy of laptapenterprises/public/laptap_logo_transparent.svg)' }
+$icon = Join-Path $PSScriptRoot 'src\laptap.ico'
+if (-not (Test-Path -LiteralPath $icon)) { throw 'src\laptap.ico is missing' }
 $sibling = Join-Path (Split-Path -Parent $PSScriptRoot) 'laptapenterprises\public\laptap_logo_transparent.svg'
 if (Test-Path -LiteralPath $sibling) {
     if ((Get-FileHash -LiteralPath $logo).Hash -ne (Get-FileHash -LiteralPath $sibling).Hash) { throw 'src\web\brand\logo.svg differs from laptapenterprises/public/laptap_logo_transparent.svg (artwork must be the real file)' }
@@ -82,7 +84,7 @@ if (Test-Path -LiteralPath $sibling) {
 }
 $video = $null
 foreach ($v in @('assets\video\loop.webm', 'assets\video\loop.mp4')) { $p = Join-Path $PSScriptRoot $v; if (Test-Path -LiteralPath $p) { $video = $p; break } }
-$res = @('/resource:src\web\index.html,index.html', '/resource:src\web\logic.js,logic.js', "/resource:$logo,brand/logo.svg")
+$res = @('/resource:src\web\index.html,index.html', '/resource:src\web\logic.js,logic.js', "/resource:$logo,brand/logo.svg", "/resource:$icon,brand/favicon.ico")
 if ($video) { $res += "/resource:$video,loop$([IO.Path]::GetExtension($video))" }
 Write-Host ('packaged video: ' + $(if ($video) { (Split-Path -Leaf $video) + ' (' + (Get-Item -LiteralPath $video).Length + ' bytes)' } else { 'none' }))
 if ($video) { & (Join-Path $PSScriptRoot 'tools\size-gates.ps1') -Exe $logo -Video $video | Out-Null }   # fail fast, before compiling
@@ -141,7 +143,7 @@ if (-not $SkipTests) {
     New-Item -ItemType Directory -Force -Path $tbin | Out-Null
     $texe = Join-Path $tbin 'HelperTests.exe'
     $targs = @('/nologo', '/target:exe', '/platform:anycpu', '/main:HelperTests', '/define:TESTHOOKS') + $refs +
-             @('/resource:src\web\index.html,index.html', '/resource:src\web\logic.js,logic.js', "/resource:$logo,brand/logo.svg", "/out:$texe") + $src +
+             @('/resource:src\web\index.html,index.html', '/resource:src\web\logic.js,logic.js', "/resource:$logo,brand/logo.svg", "/resource:$icon,brand/favicon.ico", "/out:$texe") + $src +
              @('tools\KeyTools.cs', 'tests\V15Tests.cs', 'tests\V151Tests.cs', 'tests\V16Tests.cs', 'tests\HelperTests.cs')
     & $csc @targs
     if ($LASTEXITCODE -ne 0) { throw 'compile failed (tests)' }

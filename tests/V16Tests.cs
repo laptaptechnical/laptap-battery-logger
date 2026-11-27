@@ -400,6 +400,7 @@ static class V16Tests
         Eq(416, Server.ParseRange("bytes=5-2", 3000000, Server.MediaChunk, out a, out b), "end before start → 416");
         Eq(416, Server.ParseRange("items=0-1", 3000000, Server.MediaChunk, out a, out b), "not bytes → 416");
         Eq(0, Server.CheckRequest("GET", true, "localhost:47600", 47600, "/brand/logo.svg", null, "t"), "/brand/logo.svg needs no token");
+        Eq(0, Server.CheckRequest("GET", true, "localhost:47600", 47600, "/brand/favicon.ico", null, "t"), "/brand/favicon.ico needs no token");
         Eq(0, Server.CheckRequest("GET", true, "localhost:47600", 47600, "/media/loop.webm", null, "t"), "/media/loop.webm needs no token");
         Eq(403, Server.CheckRequest("GET", false, "localhost:47600", 47600, "/media/loop.webm", null, "t"), "loopback still required");
         Eq(400, Server.CheckRequest("GET", true, "evil:47600", 47600, "/brand/logo.svg", null, "t"), "Host still checked");
@@ -411,6 +412,7 @@ static class V16Tests
         StallStream stall = null;
         Server s = new Server();
         s.LogoSvg = Encoding.UTF8.GetBytes("<svg xmlns=\"http://www.w3.org/2000/svg\"/>");
+        s.IconIco = new byte[] { 0, 0, 1, 0 };
         s.MediaExt = "webm";
         bool stalled = false;
         s.OpenMedia = delegate { if (stalled) { stall = new StallStream(video); return stall; } return new MemoryStream(video); };
@@ -421,6 +423,8 @@ static class V16Tests
             WebHeaderCollection h; byte[] body;
             Eq(200, Get(s.Port, "/brand/logo.svg", null, null, out h, out body, 5000), "GET /brand/logo.svg");
             Eq("image/svg+xml", h["Content-Type"], "image/svg+xml");
+            Eq(200, Get(s.Port, "/brand/favicon.ico", null, null, out h, out body, 5000), "GET /brand/favicon.ico");
+            Eq("image/x-icon", h["Content-Type"], "favicon content type"); Eq(4, body.Length, "favicon body");
             Eq(206, Get(s.Port, "/media/loop.webm", null, null, out h, out body, 5000), "GET /media/loop.webm (no Range) → 206");
             Eq("video/webm", h["Content-Type"], "video/webm"); Eq("bytes", h["Accept-Ranges"], "Accept-Ranges: bytes");
             Eq("bytes 0-1048575/2500000", h["Content-Range"], "capped Content-Range"); Eq(1048576, body.Length, "1 MB body");
@@ -455,12 +459,16 @@ static class V16Tests
         Section("v16 brand");
         string repo = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", ".."));
         string logo = Path.Combine(repo, "src", "web", "brand", "logo.svg");
+        string icon = Path.Combine(repo, "src", "laptap.ico");
         string src = Path.Combine(Path.GetDirectoryName(repo), "laptapenterprises", "public", "laptap_logo_transparent.svg");
         Ok(File.Exists(logo), "src/web/brand/logo.svg exists");
+        Ok(File.Exists(icon), "src/laptap.ico exists");
         if (File.Exists(src)) Eq(Updater.Sha256Hex(src), Updater.Sha256Hex(logo), "the logo is byte-identical to the laptapenterprises file");
         else Ok(true, "laptapenterprises not beside this repo: hash checked by build.ps1 when present");
         byte[] embedded = Program.ResourceBytes("brand/logo.svg");
         Ok(embedded != null && embedded.Length == new FileInfo(logo).Length, "the logo is embedded (brand/logo.svg)");
+        byte[] embeddedIcon = Program.ResourceBytes("brand/favicon.ico");
+        Ok(embeddedIcon != null && embeddedIcon.Length == new FileInfo(icon).Length, "the company icon is embedded as the favicon");
         string img = Report.LogoImgHtml();
         Ok(img.StartsWith("<img class=\"logo\" alt=\"Laptap\" src=\"data:image/svg+xml;base64,"), "the report inlines the logo as base64 (M2)");
         object[] co = typeof(Program).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyCompanyAttribute), false);

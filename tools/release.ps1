@@ -1,12 +1,12 @@
-# tools/release.ps1 <version> — make a signed release (plan §5.5). Owner-run, on the owner's PC.
-#  1. refuses a dirty tree   2. writes VERSION (version, release + 1)   3. builds + tests (build.ps1)
+# tools/release.ps1 [version] — make a signed release (plan §5.5). Owner-run, on the owner's PC.
+#  1. offers to commit a dirty tree   2. writes VERSION (version, release + 1)   3. builds + tests (build.ps1)
 #  4. writes + signs update.json   5. checks it with the new exe's --verify-release   6. commits "Release vX" + tag vX
 #  7. asks "Push to GitHub now? (Y/N)"   8. opens the folder with the three files to upload.
 # It never creates the GitHub release itself (that's the owner's drag-and-drop, HOW-TO-RELEASE.md).
 # Test mode (the local end-to-end test only): -NoGit -KeyFile <test key> [-TestHooks] [-Release n] -OutDir <dir>:
 # no git, VERSION untouched, signed with a throwaway test key.
 param(
-    [Parameter(Mandatory = $true, Position = 0)][string]$Version,
+    [Parameter(Position = 0)][string]$Version,
     [string]$KeyFile,
     [switch]$TestHooks,
     [switch]$NoGit,
@@ -17,9 +17,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 Set-Location -LiteralPath $repo
-if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Version must look like 15.0.1' }
+if ($Version -and $Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Version must look like 15.0.1' }
 # U3: the test switches can never make a real (committed, tagged) release.
 if (($TestHooks -or $KeyFile -or $Release -gt 0 -or $OutDir) -and -not $NoGit) { throw '-TestHooks, -KeyFile, -Release and -OutDir are for the local test only (with -NoGit).' }
+if ($NoGit -and -not $Version) { throw 'A version is required when using -NoGit.' }
 if (-not ('KeyTools' -as [type])) { Add-Type -Path (Join-Path $repo 'tools\KeyTools.cs') -ReferencedAssemblies System.Core }
 Add-Type -AssemblyName System.Security
 $keyDir = Join-Path $env:APPDATA 'Laptap\BatteryLogger'
@@ -32,10 +33,39 @@ $vf = @{}
 foreach ($line in Get-Content -LiteralPath (Join-Path $repo 'VERSION')) { if ($line -match '^\s*(\w+)\s*=\s*(\S+)\s*$') { $vf[$Matches[1]] = $Matches[2] } }
 $bump = 1
 if (-not $NoGit) {
-    if (git status --porcelain) { throw 'The working tree has uncommitted changes. Commit or discard them first.' }
+    git fetch --tags
+    if ($LASTEXITCODE -ne 0) { throw 'Could not fetch Git tags; refusing to guess the release version.' }
+    if (-not $Version) {
+        if ($vf['version'] -notmatch '^\d+\.\d+\.\d+$') { throw 'VERSION has no valid version= entry.' }
+        $latest = [version]$vf['version']
+        $tags = git tag --list 'v*'
+        if ($LASTEXITCODE -ne 0) { throw 'Could not read Git tags; refusing to guess the release version.' }
+        foreach ($tag in $tags) {
+            if ($tag -match '^v(\d+\.\d+\.\d+)$') {
+                $tagVersion = [version]$Matches[1]
+                if ($tagVersion -gt $latest) { $latest = $tagVersion }
+            }
+        }
+        $Version = '{0}.{1}.{2}' -f $latest.Major, $latest.Minor, ($latest.Build + 1)
+        Write-Host "Next release version: $Version"
+    }
+    $status = @(git status --short)
+    if ($LASTEXITCODE -ne 0) { throw 'Could not check the working tree status.' }
+    if ($status.Count -gt 0) {
+        Write-Host ''
+        Write-Host 'Uncommitted changes detected:'
+        $status | ForEach-Object { Write-Host $_ }
+        $answer = Read-Host "Stage and commit ALL listed changes before release v$Version? (Y/N)"
+        if ($answer -notmatch '^[Yy]$') { throw 'Release cancelled; no changes were staged or committed.' }
+        git add -A
+        if ($LASTEXITCODE -ne 0) { throw 'Could not stage all changes.' }
+        git commit -m "Prepare release v$Version"
+        if ($LASTEXITCODE -ne 0) { throw 'Could not commit the staged changes.' }
+    }
     $bf = Join-Path $keyDir 'signing.bump'
     if (Test-Path $bf) { $bump += [int](Get-Content $bf) }
 }
+if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Version must look like 15.0.1' }
 $rel = if ($Release -gt 0) { $Release } else { [int]$vf['release'] + $bump }
 if (-not $NoGit) {
     [IO.File]::WriteAllText((Join-Path $repo 'VERSION'), "version=$Version`nrelease=$rel`n", (New-Object Text.UTF8Encoding($false)))

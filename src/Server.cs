@@ -33,6 +33,7 @@ public class Server
     public byte[] IndexHtml = new byte[0], LogicJs = new byte[0];
     // ---- v16 §6: the brand logo and the packaged video (C2, C3, M5) ----
     public byte[] LogoSvg;                                   // /brand/logo.svg (null → 404)
+    public byte[] IconIco;                                   // /brand/favicon.ico (null → 404)
     public string MediaExt;                                  // "webm" | "mp4" | null (no packaged video → /media/* 404)
     public Func<Stream> OpenMedia = delegate { return null; };   // a seekable stream of the embedded video
     public const long MediaChunk = 1048576;                  // each media response is capped at 1 MB; Edge asks for the next range
@@ -68,8 +69,8 @@ public class Server
             return 0;
         }
         if (method == "GET" && (path == "/" || path == "/index.html" || path == "/logic.js")) return 0;
-        // v16: no token for the logo and the video (an <img>/<video> can't send one); loopback + Host still apply.
-        if (method == "GET" && (path == "/brand/logo.svg" || path == "/media/loop.webm" || path == "/media/loop.mp4")) return 0;
+        // No token for static brand/media resources; loopback + Host still apply.
+        if (method == "GET" && (path == "/brand/logo.svg" || path == "/brand/favicon.ico" || path == "/media/loop.webm" || path == "/media/loop.mp4")) return 0;
         return 404;
     }
 
@@ -236,6 +237,11 @@ public class Server
         {
             if (LogoSvg == null) { Send(ctx, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("404")); return; }
             Send(ctx, 200, "image/svg+xml", LogoSvg); return;
+        }
+        if (path == "/brand/favicon.ico")
+        {
+            if (IconIco == null) { Send(ctx, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("404")); return; }
+            Send(ctx, 200, "image/x-icon", IconIco); return;
         }
         if (path == "/media/loop.webm" || path == "/media/loop.mp4")
         {

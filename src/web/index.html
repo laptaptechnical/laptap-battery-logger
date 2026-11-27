@@ -3,7 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Battery Logger</title>
+<meta name="laptap-channel" content="stable">
+<title>Laptap Enterprises, Inc. - Battery Logger</title>
+<link rel="icon" type="image/x-icon" href="brand/favicon.ico">
 <style>
 /* v16 (prototype battery-logger-v16.html): one stage per state under a navy Laptap header. Colours come from the logo
    file itself (§1, D1): navy #053299 = header + primary buttons; yellow #f7ee22 = accent only (focus ring, LOGGING dot,
@@ -28,9 +30,9 @@ html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font:13px/1.4 var(--font);font-variant-numeric:tabular-nums}
 .app{width:100%;height:100%;min-height:420px;background:var(--bg);display:flex;flex-direction:column;container-type:size;position:relative;overflow:hidden}
 header{height:44px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px 0 6px;background:var(--brand);color:var(--brand-fg);position:relative;z-index:2}
-/* the real logo artwork (laptapenterprises/public/laptap_logo_transparent.svg), on a white tile because it contains navy */
-.tile{width:36px;height:36px;border-radius:6px;background:#fdfdfc;display:grid;place-items:center;flex:none;overflow:hidden}
-.tile img{width:44px;height:44px;max-width:none}
+/* The real logo artwork keeps its transparent background over the brand header. */
+.tile{width:36px;height:36px;display:grid;place-items:center;flex:none;overflow:hidden}
+.tile img{width:36px;height:36px;max-width:100%;object-fit:contain}
 .co{display:flex;flex-direction:column;line-height:1.1;min-width:0}
 .co small{font-size:11px;opacity:.85;white-space:nowrap}
 header h1{font-size:15px;font-weight:700;margin:0;white-space:nowrap}
@@ -119,6 +121,12 @@ body.hid .plug,body.hid .arrowhint,body.hid .bolt{animation-play-state:paused}
 .actions label{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
 .actions input{font:inherit;width:56px;height:28px;padding:0 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
 .confirm{display:inline-flex;align-items:center;gap:8px;color:var(--bad);font-weight:600}
+.exportDropdown{position:relative}
+.exportDropdown>summary{list-style:none;display:inline-flex;align-items:center;height:30px;padding:0 12px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--accent);cursor:pointer;white-space:nowrap}
+.exportDropdown>summary::-webkit-details-marker{display:none}
+.exportDropdown>summary:focus-visible{outline:3px solid var(--hi);outline-offset:1px;box-shadow:0 0 0 5px var(--brand)}
+.exportOptions{position:absolute;top:calc(100% + 4px);right:0;z-index:4;min-width:150px;padding:4px;background:var(--bg);border:1px solid var(--line);border-radius:4px;box-shadow:0 4px 14px rgba(0,0,0,.2);display:grid;gap:2px}
+.exportOptions button{text-align:left;border:0;width:100%;padding:0 10px}
 
 .logbox{flex:1;min-height:0;display:flex;flex-direction:column}
 .loghead{display:flex;align-items:center;gap:10px;height:28px;padding:0 clamp(12px,2cqw,20px);background:var(--panel);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);flex:none}
@@ -280,8 +288,13 @@ tr.new td{animation:hl 1.4s ease-out}
         <label for="alarmPct">Alarm at <input type="number" id="alarmPct" min="10" max="50" value="15">%</label>
         <span class="spacer"></span>
         <button id="pauseBtn">‖ Pause</button>
+        <details class="exportDropdown" id="runExport">
+          <summary>Export logs ▾</summary>
+          <div class="exportOptions"><button type="button" id="runCsv">As .csv</button><button type="button" id="runPdf">As PDF</button></div>
+        </details>
         <button class="danger" id="stopBtn">Stop test</button>
         <span class="confirm" id="stopConfirm" hidden>End the test now? <button class="danger" id="stopYes">End test</button><button id="stopNo">Keep running</button></span>
+        <span class="msg" id="runExportMsg" hidden></span>
       </div>
       <div class="runbody">
       <div class="logbox">
@@ -314,7 +327,10 @@ tr.new td{animation:hl 1.4s ease-out}
           <div class="range" id="range"></div>
           <span class="manual" id="doneManual" hidden></span>
           <div class="saved" id="saved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M9 15l2 2 4-4"/></svg><div><b id="savedT">Report saved to the Desktop</b><span id="savedF"></span></div></div>
-          <div class="btns"><button class="primary huge" id="newBtn">New test</button><button class="huge" id="openBtn">Open report</button><button class="huge" id="csvBtn" hidden>Save CSV</button><span class="msg" id="doneMsg" hidden></span><span class="msg" id="csvMsg" hidden></span></div>
+          <div class="btns"><button class="primary huge" id="newBtn">New test</button><button class="huge" id="openBtn">Open report</button><details class="exportDropdown" id="doneExport">
+            <summary>Export logs ▾</summary>
+            <div class="exportOptions"><button type="button" id="doneCsv">As .csv</button><button type="button" id="donePdf">As PDF</button></div>
+          </details><button class="huge" id="csvBtn" hidden>Save CSV</button><span class="msg" id="doneMsg" hidden></span><span class="msg" id="csvMsg" hidden></span><span class="msg" id="doneExportMsg" hidden></span></div>
         </div>
         <div class="right" id="facts"></div>
       </div>
@@ -644,6 +660,10 @@ function modeOf(stage) {
 }
 
 function render(s) {
+  var channelMeta = document.querySelector('meta[name="laptap-channel"]');
+  var channel = channelMeta && channelMeta.content ? channelMeta.content : 'stable';
+  var title = 'Laptap Enterprises, Inc. - Battery Logger v' + (s.version || (s.app && s.app.version) || '') + ' --' + channel;
+  if (document.title !== title) document.title = title;
   var n = s.now || {}, sess = s.session, bats = s.batteries || [], app = s.app || {}, u = s.unit || {}, ck = s.checks || {};
   var v = L.stageView(s), prevMode = st.mode;
   st.stage = v.stage; st.mode = modeOf(v.stage);
@@ -999,6 +1019,7 @@ function autoRestart(ph) {
   autoTimer = setTimeout(function () { if (st.snap) renderUpdate(st.snap, st.snap.app || {}); }, Math.min(250, Math.max(10, autoLeft())));
 }
 document.addEventListener('visibilitychange', function () { if (st.snap) renderUpdate(st.snap, st.snap.app || {}); });
+window.addEventListener('beforeunload', function (e) { e.preventDefault(); e.returnValue = ''; });
 $('startBtn').onclick = function () { command('/api/arm', null, 'preMsg'); };
 // v16 §2: Start anyway → the inline "Start at 82%?" confirm → POST /api/start-anyway (no body; the exe re-checks)
 var anyConfirming = false;
@@ -1010,10 +1031,10 @@ $('pauseBtn').onclick = function () { command('/api/pause', null, null); };
 $('resumeBtn').onclick = function () { command('/api/resume', null, null); };
 
 // ---------------- v16 §6: the video panel ----------------
-// The packaged loop plays muted while LOGGING, pauses on any pause, and is gone at Done. Open file plays a local file
-// (blob:) on loop, muted by default, until the window reloads. The page reports which video and how long it was on
+// The packaged loop plays while LOGGING, pauses on any pause, and is gone at Done. Open file plays a local file
+// (blob:) on loop. Both sources start unmuted; the visible control can mute or unmute playback. The page reports which video and how long it was on
 // screen (D10): POST /api/video {source, visibleMs} every 30 s, on every stage change and when the test ends.
-var vid = { url: null, name: '', muted: true, err: false, src: null, visibleMs: 0, lastTick: 0, sentAt: 0, sentMs: -1, sessionId: null };
+var vid = { url: null, name: '', muted: false, err: false, src: null, visibleMs: 0, lastTick: 0, sentAt: 0, sentMs: -1, sessionId: null };
 function vidSource(s) {
   var m = s.app && s.app.media;
   if (vid.url) return { url: vid.url, label: vid.name, source: vid.name };
@@ -1026,14 +1047,14 @@ function renderVideo(s, v) {
   var run = v.stage === 'logging' || v.stage === 'paused';
   var src = vidSource(s), play = L.videoShouldPlay(v.stage) && !!src && !vid.err;
   setText('vidName', src ? src.label : 'None');
-  setProp('muteBtn', 'hidden', !vid.url); setText('muteBtn', vid.muted ? 'Unmute' : 'Mute');
+  setProp('muteBtn', 'hidden', !src); setText('muteBtn', vid.muted ? 'Unmute' : 'Mute');
   setProp('vpause', 'hidden', !(run && v.stage === 'paused' && src));
   setProp('verr', 'hidden', !vid.err);
   setProp('still', 'hidden', !!src && !vid.err);
   if (src && el.__src !== src.url) { el.__src = src.url; el.src = src.url; }
   if (!src && el.__src) { el.__src = null; el.removeAttribute('src'); try { el.load(); } catch (e) {} }
   setProp('vid', 'hidden', !src || vid.err);
-  el.muted = vid.url ? vid.muted : true;
+  el.muted = vid.muted;
   if (play && !document.hidden) { if (el.paused) { var pr = el.play(); if (pr && pr.catch) pr.catch(function () {}); } }
   else if (!el.paused) el.pause();
   // on-screen time: counted only while it plays in a visible window
@@ -1050,7 +1071,7 @@ $('fileIn').onchange = function () {
   var f = $('fileIn').files && $('fileIn').files[0];
   if (!f) return;
   if (vid.url) URL.revokeObjectURL(vid.url);
-  vid.url = URL.createObjectURL(f); vid.name = f.name; vid.err = false; vid.muted = true;
+  vid.url = URL.createObjectURL(f); vid.name = f.name; vid.err = false; vid.muted = false;
   if (st.snap) render(st.snap);
 };
 $('muteBtn').onclick = function () { vid.muted = !vid.muted; $('vid').muted = vid.muted; setText('muteBtn', vid.muted ? 'Unmute' : 'Mute'); };
@@ -1066,6 +1087,51 @@ $('csvBtn').onclick = function () {
     setTimeout(function () { setText('csvBtn', 'Save CSV'); }, 1500);
   }, function () {});
 };
+function exportCsv(menuId, msgId) {
+  $(menuId).open = false;
+  setProp(msgId, 'hidden', true);
+  api('/api/save-csv', 'POST').then(function (r) {
+    if (!r || r.ok === false) { setText(msgId, r && r.error ? r.error : 'Could not export CSV.'); setProp(msgId, 'hidden', false); return; }
+    setText(msgId, 'CSV exported to the Desktop.');
+    setProp(msgId, 'hidden', false);
+  }, function () {
+    setText(msgId, 'CSV export failed. Check the logger connection and try again.');
+    setProp(msgId, 'hidden', false);
+  });
+}
+function exportPdf(menuId, msgId) {
+  $(menuId).open = false;
+  setProp(msgId, 'hidden', true);
+  var win = window.open('', '_blank');
+  if (!win) { setText(msgId, 'Allow pop-ups to export the log as PDF.'); setProp(msgId, 'hidden', false); return; }
+  var snap = st.snap || {}, sess = snap.session || {}, unit = snap.unit || {};
+  var rows = L.mergeRows(st.samples, st.events);
+  var tableRows = rows.map(function (r) {
+    return '<tr><td>' + clock(r.ms) + '</td><td>' + esc(rowLabel(r)) + '</td><td class="n">' +
+      (r.pct == null ? '' : esc(r.pct + '%')) + '</td><td class="n">' + esc(wh(r.mwh)) + '</td><td class="n">' +
+      esc(w(r.rateMw)) + '</td><td class="n">' + esc(L.fmtElapsed(r.elapsedS)) + '</td></tr>';
+  }).join('');
+  var device = [unit.model || unit.maker || '', unit.serial || ''].filter(function (x) { return !!x; }).join(' · ');
+  var title = 'Laptap Enterprises, Inc. - Battery Logger Log';
+  var html = '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' +
+    'body{font:12px/1.4 Arial,sans-serif;color:#141824;margin:0}main{padding:18px}h1{font-size:20px;margin:0 0 4px;color:#053299}' +
+    '.sub{color:#646b7a;margin-bottom:14px}table{width:100%;border-collapse:collapse}th,td{padding:5px 7px;border-bottom:1px solid #dde1ea;text-align:left}' +
+    'th{background:#f5f6fa;color:#646b7a}td.n,th.n{text-align:right}tr{break-inside:avoid}' +
+    '@page{size:landscape;margin:10mm}@media print{main{padding:0}}</style></head><body><main><h1>' + esc(title) +
+    '</h1><div class="sub">' + esc(device || 'Device details unavailable') + ' · ' + esc(sess.status || 'unknown status') +
+    ' · ' + rows.length + ' log entries</div><table><thead><tr><th>Time</th><th>Event</th><th class="n">%</th>' +
+    '<th class="n">Wh</th><th class="n">W</th><th class="n">Elapsed</th></tr></thead><tbody>' + tableRows +
+    '</tbody></table></main></body></html>';
+  win.document.open(); win.document.write(html); win.document.close();
+  setTimeout(function () {
+    try { win.focus(); win.print(); setText(msgId, 'In the print dialog, choose Save as PDF.'); setProp(msgId, 'hidden', false); }
+    catch (e) { setText(msgId, 'Could not open the PDF print dialog: ' + e.message); setProp(msgId, 'hidden', false); }
+  }, 300);
+}
+[['runExport', 'runCsv', 'runPdf', 'runExportMsg'], ['doneExport', 'doneCsv', 'donePdf', 'doneExportMsg']].forEach(function (x) {
+  $(x[1]).onclick = function () { exportCsv(x[0], x[3]); };
+  $(x[2]).onclick = function () { exportPdf(x[0], x[3]); };
+});
 $('stopBtn').onclick = function () { $('stopBtn').hidden = true; $('stopConfirm').hidden = false; };
 $('stopNo').onclick = function () { $('stopBtn').hidden = false; $('stopConfirm').hidden = true; };
 $('stopYes').onclick = function () { $('stopBtn').hidden = false; $('stopConfirm').hidden = true; command('/api/stop', null, null); };

@@ -34,7 +34,7 @@ class FakeExe {
     this.unit = { manufacturer: 'HP', model: o.model || 'EliteBook 840 G5', serial: '5CB4190FVX', serialSource: 'BIOS' };
     this.batteries = o.batteries || [{ id: '1', maker: 'SMP', chemistry: 'LIon', designMwh: 51528, fullMwh: 47378, cycles: null }];
     this.now = { pct: 'pct' in o ? o.pct : 100, mwh: o.pct === null ? null : 47378, fullMwh: 47378, rateMw: null, ac: o.ac ?? true, charging: false, saver: false };
-    this.S = null; this.samples = []; this.events = []; this.result = null;
+    this.S = null; this.samples = []; this.events = []; this.result = null; this.media = o.media || null;
   }
   health() {
     const f = this.batteries.reduce((a, b) => a + (b.fullMwh || 0), 0), d = this.batteries.reduce((a, b) => a + (b.designMwh || 0), 0);
@@ -81,7 +81,7 @@ class FakeExe {
     const ready = !S || S.status === 'waiting';
     return { rev: this.rev, version: '15.0.0', nowMs: this.at,
       checks: { battery: true, pct96: this.now.pct != null && this.now.pct >= 96, unplugged: !this.now.ac, chargeLimitHint: false },
-      armed: true, countdownEndsMs: null, app: { version: '15.0.0', release: 1, updatedFrom: null, updateNote: null },
+      armed: true, countdownEndsMs: null, app: { version: '15.0.0', release: 1, updatedFrom: null, updateNote: null, media: this.media },
       unit: { maker: this.unit.manufacturer, model: this.unit.model, serial: this.unit.serial, computerName: 'LAPTOP-1234' },
       batteries: this.batteries.map(b => ({ fullEndMwh: null, ...b })), now: { ...this.now },
       session: ready ? null : { id: S.id, status: S.status, startedMs: S.startedMs,
@@ -118,7 +118,7 @@ class FakeExe {
     return null;
   }
   routes() {
-    const send = (route, status, body, type = 'application/json') => route.fulfill({ status, contentType: type, body: typeof body === 'string' ? body : JSON.stringify(body) });
+    const send = (route, status, body, type = 'application/json') => route.fulfill({ status, contentType: type, body: Buffer.isBuffer(body) ? body : typeof body === 'string' ? body : JSON.stringify(body) });
     return [[`${ORIGIN}/**`, async (route) => {
       this.inflight++;
       try { return await this.handle(route, send); } finally { this.inflight--; }
@@ -130,6 +130,9 @@ class FakeExe {
     if (this.down) return route.abort('connectionrefused');
     if (u.pathname === '/') return send(route, 200, fs.readFileSync(PAGE, 'utf8'), 'text/html; charset=utf-8');
     if (u.pathname === '/logic.js') return send(route, 200, fs.readFileSync(path.join(WEB, 'logic.js'), 'utf8'), 'text/javascript');
+    if (u.pathname === '/brand/logo.svg') return send(route, 200, fs.readFileSync(path.join(WEB, 'brand', 'logo.svg')), 'image/svg+xml');
+    if (u.pathname === '/brand/favicon.ico') return send(route, 200, fs.readFileSync(path.join(ROOT, 'src', 'laptap.ico')), 'image/x-icon');
+    if (u.pathname === '/media/loop.webm') return send(route, 200, '', 'video/webm');
     if (!u.pathname.startsWith('/api/')) return send(route, 404, { ok: false });
     if (req.headers()['x-laptap-token'] !== this.token) return send(route, 403, { ok: false });
     if (m === 'GET' && u.pathname === '/api/state') { const since = +(u.searchParams.get('since') || 0); return send(route, 200, SHAPES === 'impl1' ? this.state(since) : this.stateContract(since)); }
@@ -202,7 +205,7 @@ test('bug 7: a 5-min freeze of the page leaves a Gap row (browser-only)', () => 
 }));
 
 // ---------------- bug 3: confirm, no wipe ----------------
-test('bug 3: Stop asks in-page first; "Keep running" keeps the test; no Clear/Restart/Pause', () => { const exe = new FakeExe(); return withExe(exe, {}, async (L) => {
+test('bug 3: Stop asks in-page first; "Keep running" keeps the test; export controls are available', () => { const exe = new FakeExe(); return withExe(exe, {}, async (L) => {
   exe.post('/api/start'); exe.unplug();
   await L.step(5000);
   await L.click('#stopBtn');
@@ -213,8 +216,58 @@ test('bug 3: Stop asks in-page first; "Keep running" keeps the test; no Clear/Re
   assert.equal(L.dialogs.length, 0, 'no browser dialog');
   assert.ok(await L.page.isEnabled('#stopBtn'), 'test still running');
   const names = (await L.page.locator('button').allInnerTexts()).join('|');
-  assert.doesNotMatch(names, /Clear|Restart|Pause/);
+  assert.doesNotMatch(names, /Clear|Restart/);
+  assert.match(names, /Pause/);
+  assert.equal(await L.page.title(), 'Laptap Enterprises, Inc. - Battery Logger v15.0.0 --stable');
+  await L.click('#runExport summary');
+  assert.ok(await L.page.isVisible('#runCsv'));
+  assert.ok(await L.page.isVisible('#runPdf'));
+  await L.click('#runCsv');
+  await L.page.waitForFunction(() => document.querySelector('#runExportMsg').textContent === 'CSV exported to the Desktop.');
+  assert.ok(exe.calls.some(c => c.m === 'POST' && c.p === '/api/save-csv'));
 }); });
+
+test('closing the logger asks for confirmation', () => withExe(new FakeExe(), {}, async (L) => {
+  const cancelled = await L.page.evaluate(() => {
+    const e = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(e);
+    return e.defaultPrevented;
+  });
+  assert.equal(cancelled, true);
+}));
+
+test('packaged video starts unmuted and the control toggles mute', () => {
+  const exe = new FakeExe({ media: { packaged: 'webm' } });
+  return withExe(exe, {}, async (L) => {
+    exe.post('/api/start'); exe.unplug();
+    await L.step(5000);
+    assert.ok(await L.page.isVisible('#muteBtn'));
+    assert.equal(await L.page.locator('#vid').evaluate(el => el.muted), false);
+    await L.click('#muteBtn');
+    assert.equal(await L.page.locator('#vid').evaluate(el => el.muted), true);
+    assert.equal(await L.text('#muteBtn'), 'Unmute');
+    await L.click('#muteBtn');
+    assert.equal(await L.page.locator('#vid').evaluate(el => el.muted), false);
+    assert.equal(await L.text('#muteBtn'), 'Mute');
+  });
+});
+
+test('PDF export opens a print-ready copy of the complete log', () => {
+  const exe = new FakeExe();
+  return withExe(exe, {}, async (L) => {
+    exe.post('/api/start'); exe.unplug();
+    await L.step(5000);
+    const popupPromise = L.page.waitForEvent('popup');
+    await L.click('#runExport summary');
+    await L.click('#runPdf');
+    const popup = await popupPromise;
+    await popup.waitForLoadState('domcontentloaded');
+    const text = await popup.locator('body').innerText();
+    assert.match(text, /Laptap Enterprises, Inc\. - Battery Logger Log/);
+    assert.match(text, /Test started/);
+    await popup.close();
+  });
+});
 
 // ---------------- bug 4: files ----------------
 test('bug 4 (logger): Done names the Desktop files; Open report asks the exe; Save CSV only after a failed save', () => {
@@ -332,8 +385,8 @@ test('bug 10: rows are separate table rows; New test starts a clean table', () =
   });
 });
 
-// ---------------- bug 11: pause removed, fresh readings ----------------
-test('bug 11: no Pause; each event row carries the reading at that moment', () => {
+// ---------------- bug 11: fresh readings ----------------
+test('bug 11: each event row carries the reading at that moment', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
     exe.post('/api/start'); exe.unplug(); await L.step(5000);
