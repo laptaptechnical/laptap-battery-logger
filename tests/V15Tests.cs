@@ -265,7 +265,8 @@ static class V15Tests
         Eq("wrong product", Updater.CheckRules(Updater.Parse(ManifestBytes(2, "15.0.1", "other", "v15.0.1", sha, 10), out e), 1), "wrong product");
         Eq("bad tag", Updater.CheckRules(Updater.Parse(ManifestBytes(2, "15.0.1", UpdateConfig.Product, "v15.0.2", sha, 10), out e), 1), "tag must equal v+version");
         Eq("bad tag", Updater.CheckRules(Updater.Parse(ManifestBytes(2, "15.0.1", UpdateConfig.Product, "15.0.1", sha, 10), out e), 1), "tag format");
-        Eq("bad size", Updater.CheckRules(Updater.Parse(ManifestBytes(2, "15.0.1", UpdateConfig.Product, "v15.0.1", sha, 6 * 1024 * 1024), out e), 1), "size > 5 MB refused");
+        Eq(null, Updater.CheckRules(Updater.Parse(ManifestBytes(2, "15.0.1", UpdateConfig.Product, "v15.0.1", sha, 20 * 1024 * 1024), out e), 1), "20 MiB update accepted");
+        Eq("bad size", Updater.CheckRules(Updater.Parse(ManifestBytes(2, "15.0.1", UpdateConfig.Product, "v15.0.1", sha, 21 * 1024 * 1024), out e), 1), "size > 20 MiB refused");
         Ok(Updater.Parse(Encoding.UTF8.GetBytes("<html>captive portal</html>"), out e) == null, "HTML is not a manifest");
         string f = Path.Combine(tmpRoot, "asset.bin"); File.WriteAllBytes(f, new byte[] { 1, 2, 3 });
         Manifest real = Updater.Parse(ManifestBytes(2, "15.0.1", UpdateConfig.Product, "v15.0.1", Updater.Sha256Hex(f), 3), out e);

@@ -3,7 +3,7 @@
 # 1) node tests  2) compile the logger exe with the built-in .NET Framework csc (C# 5)
 # 3) run-from-removable-media PE flags  4) FileVersion = VERSION; a release build has no test hooks
 # 5) compile + run HelperTests.exe  6) the output folder holds exactly one exe; v16 size gates (tools/size-gates.ps1):
-#    the packaged video ≤ 4,500,000 B and the exe ≤ 4,900,000 B. Embeds src/web/brand/logo.svg and assets/video/loop.webm
+#    the packaged video ≤ 18,000,000 B and the exe ≤ 19,000,000 B. Embeds src/web/brand/logo.svg and assets/video/loop.webm
 #    (or loop.mp4; WebM wins) when present.
 # Installs nothing. Fails on the first failing step.
 param(

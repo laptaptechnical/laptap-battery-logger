@@ -91,6 +91,8 @@ and `ffprobe` work in PowerShell, then run:
 powershell -ExecutionPolicy Bypass -File .\tools\prepare-video.ps1 -Source "C:\path\to\your-video.mp4"
 ```
 
-The script writes `assets\video\loop.webm`, keeps the full video runtime (within one second of the source), and checks
-that the video is at most 4,500,000 bytes. Run the normal build or release command afterward; it also checks the
-finished executable size. Do not commit the original large video unless it is needed separately.
+The script writes `assets\video\loop.webm`, keeps the full video runtime (within one second of the source), preserves
+stereo audio as Opus, and checks that the video is at most 18,000,000 bytes. Run the normal build or release command
+afterward; it checks that the executable is at most 19,000,000 bytes. The updater accepts executables up to 20 MiB.
+Install this larger release manually over versions whose updater still has the old 5 MiB download limit; subsequent
+updates can use the new 20 MiB limit. Do not commit the original large video unless it is needed separately.

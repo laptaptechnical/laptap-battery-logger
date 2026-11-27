@@ -9,7 +9,7 @@ public static class UpdateConfig
     public const string ReleaseBaseUrl = "https://github.com/laptaptechnical/laptap-battery-logger";
     public const string Product = "laptap-battery-logger";
     public const string AssetName = "Laptap-Battery-Logger.exe";
-    public const long MaxExeBytes = 5L * 1024 * 1024;
+    public const long MaxExeBytes = 20L * 1024 * 1024;
     public const int CheckDeadlineMs = 6000;        // per request, wall clock (C3)
     public const int OfflineRetryIntervalMs = 10000;
     public const int DownloadDeadlineMs = 60000;

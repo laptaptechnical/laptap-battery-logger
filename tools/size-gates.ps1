@@ -1,12 +1,12 @@
 # tools/size-gates.ps1 — v16 §6 (I1, I2): the build's size gates, in one place (build.ps1 calls it; tests call it too).
-#   video ≤ 4,500,000 B (the packaged loop.webm / loop.mp4, if any)
-#   exe   ≤ 4,900,000 B (under MaxExeBytes = 5,242,880, which every v15.x laptop enforces)
+#   video ≤ 18,000,000 B (the packaged loop.webm / loop.mp4, if any)
+#   exe   ≤ 19,000,000 B (under the 20 MiB updater limit)
 # Throws on the first failing gate; prints the sizes otherwise.
 param(
     [Parameter(Mandatory = $true)][string]$Exe,
     [string]$Video,
-    [long]$MaxVideo = 4500000,
-    [long]$MaxExe = 4900000
+    [long]$MaxVideo = 18000000,
+    [long]$MaxExe = 19000000
 )
 $ErrorActionPreference = 'Stop'
 if ($Video) {

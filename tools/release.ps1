@@ -94,6 +94,9 @@ if ($TestHooks) { $bargs.TestHooks = $true; $bargs.SkipTests = $true }
 $asset = Join-Path $dir 'Laptap-Battery-Logger.exe'
 Move-Item -LiteralPath (Join-Path $build 'Laptap Battery Logger.exe') -Destination $asset
 Remove-Item -Recurse -Force $build
+if ((Get-Item -LiteralPath $asset).Length -gt 5MB) {
+    Write-Warning 'This release exceeds the old 5 MiB updater limit. Existing installs with that limit need a one-time manual installation; this build accepts updates up to 20 MiB.'
+}
 
 # U3: a real release is scanned again for test-hook text, whatever build.ps1 did.
 if (-not $NoGit) {
