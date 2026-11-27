@@ -26,19 +26,18 @@ Version: `VERSION` (`version=` and `release=`) is the only place it is written. 
 | `tests/` | `logic.test.js` (node), `HelperTests.cs` + `V15Tests.cs` (C# console tests), `e2e-update.mjs`, shared `fixtures/` |
 | `test/` | Headless page harness: a fake battery, a fake clock and a mocked exe API |
 | `tools/` | `keys.ps1` (owner's signing keys), `release.ps1` (signed release), `KeyTools.cs` (their crypto) |
-| `docs/` | `api-contract.md` (page ↔ exe), `HOW-TO-RELEASE.md` (owner's recipe) |
+| `docs/` | `api-contract.md` (page ↔ exe), `BUILD-AND-RELEASE.md` (build and ship), `HOW-TO-RELEASE.md` (owner's recipe) |
 | `build.ps1` | Version, tests, compile, PE flags, version / test-hook checks, size check |
 
 ## Build
 
 ```powershell
-.\build.ps1
+powershell -ExecutionPolicy Bypass -File .\build.ps1
 ```
 
-This generates the version files, runs the node tests, compiles `dist\Laptap Battery Logger.exe` with
-`%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe`, and sets the run-from-removable-media PE flags. It then checks
-that the FileVersion matches `VERSION` and that the release exe holds no test hooks. Last, it compiles and runs
-`tests\bin\HelperTests.exe` and checks that `dist\` holds exactly one file under 400 KB.
+This runs the tests and builds `dist\Laptap Battery Logger.exe`. It checks the version, release-only settings,
+packaged video, and executable size. For the complete build, video packaging, and signed GitHub release workflow,
+see [docs/BUILD-AND-RELEASE.md](docs/BUILD-AND-RELEASE.md).
 
 - A build refuses to run unless `src\UpdateKeys.cs` holds the owner's 2 signing keys; an exe without them could
   never self-update. `.\build.ps1 -AllowNoKeys` makes a dev-only build that must never be handed out.

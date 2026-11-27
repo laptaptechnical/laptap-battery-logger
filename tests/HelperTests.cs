@@ -246,7 +246,7 @@ static class HelperTests
         Ok(html.Contains("&lt;script&gt;alert(1)&lt;/script&gt;"), "escaped model is shown");
         Ok(html.Contains("15 more in the CSV"), "first 25 events + n more");
         Ok(html.Contains("91.9%"), "health in the report");
-        Ok(html.Contains("1 gap · 0:20 (slept)"), "gap shown with reason: " + Report.GapsPauses(en.S));
+        Ok(html.Contains("1 sleep pause · 0:20 (slept)"), "sleep pause shown with reason: " + Report.GapsPauses(en.S));
         Ok(html.Contains("98% → 60%"), "start → end");
         Ok(!html.ToLowerInvariant().Contains("warranty") && !html.Contains("brand-new"), "brand truth rules");
         Ok(html.Contains("<svg"), "chart in the report");
@@ -338,9 +338,9 @@ static class HelperTests
         Sample s = new Sample(); s.Ms = 1795654800000; s.ElapsedS = 61; s.Event = "reading"; s.Pct = 87; s.Mwh = 41000; s.FullMwh = 47378; s.RateMw = 8500; s.RateSrc = "wmi";
         s.Mv = 12001; s.Ac = false; s.Saver = true; s.B = new double?[] { 41000 }; s.Note = "a, \"b\"";
         string line = Engine.CsvLine(s);
-        Ok(line.StartsWith(Rules.IsoLocal(1795654800000) + ",61,reading,87,41000,47378,8500,wmi,12001,0,1,41000,,"), "csv columns: " + line);
+        Ok(line.StartsWith(Rules.IsoLocal(1795654800000) + ",61,reading,87,41000,47378,8500,wmi,12001,0,1,"), "csv columns: " + line);
         List<string> c = Engine.ParseCsvLine(line);
-        Eq(14, c.Count, "14 columns"); Eq("a, \"b\"", c[13], "note escaping round trip");
+        Eq(12, c.Count, "12 columns without per-battery fields"); Eq("a, \"b\"", c[11], "note escaping round trip");
         string tmp = Path.Combine(Path.GetTempPath(), "laptap-bl-test-" + Guid.NewGuid().ToString("N") + ".csv");
         try
         {
@@ -349,7 +349,7 @@ static class HelperTests
             Eq(1, back.Count, "read back"); Eq(1795654800000L, back[0].Ms, "time read back"); Eq(41000.0, back[0].Mwh, "mwh read back");
         }
         finally { try { File.Delete(tmp); } catch { } }
-        Eq("time,elapsed_s,event,windows_pct,remaining_mwh,full_mwh,rate_mw,rate_src,voltage_mv,ac,saver,b0_mwh,b1_mwh,note", new Engine().CsvHeader(), "header");
+        Eq("time,elapsed_s,event,windows_pct,remaining_mwh,full_mwh,rate_mw,rate_src,voltage_mv,ac,saver,note", new Engine().CsvHeader(), "header");
     }
 
     static void Parsers()
