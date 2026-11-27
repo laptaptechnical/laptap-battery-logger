@@ -80,7 +80,7 @@ export class FakeExe151 extends FakeExe {
     const u = this.app.update;
     switch (p) {
       case '/api/update-restart':
-        if (u.phase !== 'ready' || !this.idleForUpdate()) return { ok: false, error: 'Finish the test first.' };
+        if (this.refuseRestart || u.phase !== 'ready' || !this.idleForUpdate()) return { ok: false, error: 'Finish the test first.' };
         this.restart(); return { ok: true };
       case '/api/update-retry':
         if (u.phase !== 'failed') return { ok: false, error: 'Nothing to retry.' };

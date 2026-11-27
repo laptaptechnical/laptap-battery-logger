@@ -1,7 +1,7 @@
 // test/v15_1-update.test.mjs
-// v15.1.0 update UI, reduced scope (plan v15.1 §2.3, §4.3, G1, G7): one modal per app.update.phase; ready =
-// "Installs next time you open the logger." + OK (→ chip "v<x> installs next time") + idle-only Restart now, with NO
-// automatic restart; failed → Later / Try again; the "Updated to" toast; the header chip during a test.
+// v15.1.0 update UI (plan v15.1 §2.3, §4.3, G1, G7) as changed by v15.2.1 (owner request): one modal per
+// app.update.phase; ready + idle = "Update complete..." + a 3 s "restarting Battery Logger in 3.. 2.. 1.." + Restart now,
+// then an automatic /api/update-restart; a refused restart falls back to "Installs next time you open the logger." + OK; failed → Later / Try again; the "Updated to" toast; the header chip during a test.
 // Run:  node --test --test-concurrency=1 test/v15_1-update.test.mjs
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -56,24 +56,41 @@ test('verifying: "Checking the download…" / "Checking it\'s signed by Laptap"'
   });
 });
 
-test('ready (idle): "Update ready" + "Installs next time you open the logger." + Restart now + OK; no auto restart', () => {
+// v15.2.1 (owner request): ready + idle restarts by itself after 3 s; "Installs next time" + OK is only the fallback.
+test('ready (idle, v15.2.1): "Update complete..." + "restarting Battery Logger in 3.. 2.. 1.." + Restart now, no OK; posts restart after 3 s', () => {
   const exe = new FakeExe151({ pct: 100, ac: true });
   exe.setUpdate('ready');
   return withExe(exe, {}, async (L) => {
     await L.step(1000);
-    const o = await overlay(L);
-    assert.match(o, /Update ready/); assert.match(o, /Installs next time you open the logger\./);
-    assert.doesNotMatch(o, /Restarting in/, 'no countdown');
-    assert.ok(await L.page.isVisible(SEL.restart), 'Restart now shown when idle');
-    assert.ok(await L.page.getByRole('button', { name: 'OK' }).isVisible(), 'OK');
-    await L.step(10_000);
-    assert.equal(exe.app.update.phase, 'ready', 'never restarts by itself');
-    assert.equal(exe.count('/api/update-restart', 'POST'), 0);
-    await L.page.getByRole('button', { name: 'OK' }).click(); await L.step(1000);
-    assert.doesNotMatch(await overlay(L), /Update ready/, 'OK closes it');
-    assert.match(await chip(L), /v15\.1\.0 installs next time/);
+    let o = await overlay(L);
+    assert.match(o, /Update complete\.\.\./);
+    assert.match(o, /restarting Battery Logger in 3\.\./);
+    assert.ok(await L.page.isVisible(SEL.restart), 'Restart now');
+    assert.equal(await L.page.getByRole('button', { name: 'OK' }).count(), 0, 'no OK while it counts down');
+    await L.step(1000); o = await overlay(L);
+    assert.match(o, /restarting Battery Logger in 3\.\. 2\.\./, `words grow: ${o}`);
+    await L.step(1000); o = await overlay(L);
+    assert.match(o, /restarting Battery Logger in 3\.\. 2\.\. 1\.\.|Restarting…/, `words grow to 1.. or it has posted: ${o}`);
+    await L.step(2000);
+    assert.equal(exe.count('/api/update-restart', 'POST'), 1, 'posted by itself after 3 s');
+    assert.match(await overlay(L), /Restarting…/);
+  });
+});
+
+test('ready (idle), restart refused → falls back to "Installs next time you open the logger." + OK', () => {
+  const exe = new FakeExe151({ pct: 100, ac: true });
+  exe.setUpdate('ready'); exe.refuseRestart = true;
+  return withExe(exe, {}, async (L) => {
     await L.step(5000);
-    assert.doesNotMatch(await overlay(L), /Update ready/, 'stays closed');
+    assert.ok(exe.count('/api/update-restart', 'POST') >= 1, 'tried');
+    const o = await overlay(L);
+    assert.match(o, /Installs next time you open the logger\./);
+    assert.ok(await L.page.getByRole('button', { name: 'OK' }).isVisible(), 'OK');
+    await L.page.getByRole('button', { name: 'OK' }).click(); await L.step(1000);
+    assert.doesNotMatch(await overlay(L), /Installs next time you open the logger/, 'OK closes it');
+    assert.match(await chip(L), /v15\.1\.0 installs next time/);
+    const n = exe.count('/api/update-restart', 'POST'); await L.step(5000);
+    assert.equal(exe.count('/api/update-restart', 'POST'), n, 'no retry loop after the fallback');
   });
 });
 
@@ -89,15 +106,27 @@ test('Restart now (idle) → POST /api/update-restart → "Restarting…" with t
   });
 });
 
-test('Restart now is hidden when not idle: Done with an unacknowledged alarm; shown after OK', () => {
+test('not idle: Done with an unacknowledged alarm → no modal countdown, no restart; after OK the 3 s auto restart runs', () => {
   const exe = new FakeExe151({ pct: 100, ac: true });
   return withExe(exe, {}, async (L) => {
     await toLogging(L, exe);
     exe.at += MIN; exe.drain(15); exe.end('alarm'); exe.setUpdate('ready'); await L.step(5000);
     assert.ok(!(await L.page.isVisible(SEL.restart)), 'hidden while the alarm is unacknowledged');
-    await L.click(SEL.alarmOk); await L.step(2000);
+    assert.equal(exe.count('/api/update-restart', 'POST'), 0, 'no restart while not idle');
+    await L.click(SEL.alarmOk); await L.step(1000);
     assert.ok(await L.page.isVisible(SEL.restart), 'shown once idle (Done, alarm acknowledged)');
-    assert.equal(exe.app.update.phase, 'ready', 'still no auto restart');
+    await L.step(4000);
+    assert.equal(exe.count('/api/update-restart', 'POST'), 1, 'auto restart after the alarm OK');
+  });
+});
+
+test('not idle: countdown or a test → chip only, never a restart', () => {
+  const exe = new FakeExe151({ pct: 100, ac: true });
+  return withExe(exe, {}, async (L) => {
+    await toLogging(L, exe);
+    exe.setUpdate('ready'); await L.step(15_000, 5000);
+    assert.match(await chip(L), /Update v15\.1\.0 installs after this test/);
+    assert.equal(exe.count('/api/update-restart', 'POST'), 0);
   });
 });
 

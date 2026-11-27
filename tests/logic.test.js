@@ -217,3 +217,15 @@ test('v15.1 heartbeat cadence: 5 s visible, 30 s hidden (inside the exe 15 s / 9
   assert.ok(L.heartbeatEvery(true) * 2 < 90000, 'a throttled hidden heartbeat (up to 60 s late) still lands inside 90 s');
   assert.equal(L.fmtHMin(11400), '3 h 10 min'); assert.equal(L.fmtHMin(2520), '42 min'); assert.equal(L.fmtHMin(null), null);
 });
+
+test('v15.2.1 auto restart: only ready + idle; words 3.. → 3.. 2.. → 3.. 2.. 1..', () => {
+  const r = (o) => L.autoRestart(Object.assign({ checks: {}, nextStep: null, countdownEndsMs: null, session: null, app: { update: { phase: 'ready' } } }, o));
+  assert.equal(r({}), true, 'Ready, idle');
+  assert.equal(r({ app: { update: { phase: 'verifying' } } }), false, 'not before ready');
+  assert.equal(r({ countdownEndsMs: 5000 }), false, 'not in a countdown');
+  assert.equal(r({ session: { status: 'running' } }), false, 'not while Logging');
+  assert.equal(r({ session: { status: 'paused' } }), false, 'not while Paused');
+  assert.equal(r({ session: { status: 'done', alarm: true, alarmAck: false } }), false, 'not before the alarm OK');
+  assert.equal(r({ session: { status: 'done', alarm: true, alarmAck: true } }), true, 'Done, alarm acknowledged');
+  assert.deepEqual([3000, 2500, 2000, 1000, 0].map(L.autoRestartWords), ['3..', '3..', '3.. 2..', '3.. 2.. 1..', '3.. 2.. 1..']);
+});

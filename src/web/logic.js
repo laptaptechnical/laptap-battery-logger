@@ -295,6 +295,14 @@
     return st !== 'countdown' && !testOnScreen(st);
   }
 
+  // v15.2.1: the automatic restart runs only when an update is ready and the logger is idle (same rule as Restart now).
+  function autoRestart(s) {
+    var u = s && s.app && s.app.update;
+    return !!(u && u.phase === 'ready' && canRestart(s));
+  }
+  // "3.." → "3.. 2.." → "3.. 2.. 1.." (the owner's words), from the ms left.
+  function autoRestartWords(leftMs) { return ['3.. 2.. 1..', '3.. 2..', '3..'][countdownDigit(leftMs) - 1]; }
+
   // §3: heartbeat cadence. Visible: every 5 s (the exe exits ~15 s after a visible page goes quiet). Hidden: every
   // 30 s, so even Chrome's 1-a-minute throttling of hidden timers stays inside the exe's 90 s hidden window.
   function heartbeatEvery(hidden) { return hidden ? 30000 : 5000; }
@@ -319,7 +327,8 @@
     sanitizeSerial: sanitizeSerial, isPlaceholderSerial: isPlaceholderSerial, validSample: validSample,
     endReason: endReason, powerState: powerState, bandView: bandView, mergeRows: mergeRows, capRows: capRows,
     stageView: stageView, testOnScreen: testOnScreen, modalView: modalView, chipView: chipView,
-    countdownDigit: countdownDigit, countdownWords: countdownWords, canRestart: canRestart, heartbeatEvery: heartbeatEvery,
+    countdownDigit: countdownDigit, countdownWords: countdownWords, canRestart: canRestart,
+    autoRestart: autoRestart, autoRestartWords: autoRestartWords, heartbeatEvery: heartbeatEvery,
     fmtHMin: fmtHMin, ACTIVE_UPDATE: ACTIVE_UPDATE
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

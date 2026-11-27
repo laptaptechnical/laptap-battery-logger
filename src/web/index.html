@@ -356,6 +356,7 @@ var st = { rev: 0, samples: [], events: [], snap: null, sessionId: null, domRows
   polledAt: 0, serverNow: 0, mode: null, stage: null };
 var fails = 0, lost = false, done = false, lastHb = 0, pollTimer = null, tickTimer = null, audio = null, beepTimer = null, ackedId = null;
 var hide = {}, checkingSince = null, restarting = null, toastTimer = null, hbTimer = null;
+var autoAt = null, autoTimer = null, restartFailed = false;   // v15.2.1: "Update complete... restarting in 3.. 2.. 1.."
 
 function api(path, method, body) {
   if (FILE) return Local.request(path, method || 'GET', body);
@@ -726,7 +727,7 @@ function dlLine(u) { return mb(u.bytes) + ' of ' + mb(u.total) + ' MB. The test 
 // One key per modal layout: the modal is rebuilt only when it changes; the download % is written in place (audit M5).
 function modalKey(ph, app) {
   var u = app.update || {};
-  return ph + '|' + (app.version || '') + '|' + (u.version || '') + '|' + (ph === 'failed' ? u.note : '') + '|' + (ph === 'ready' ? L.canRestart(st.snap) : '');
+  return ph + '|' + (app.version || '') + '|' + (u.version || '') + '|' + (ph === 'failed' ? u.note : '') + '|' + (ph === 'ready' ? L.canRestart(st.snap) + '|' + autoMode() : '');
 }
 function modalHtml(ph, app) {
   var u = app.update || {}, cur = app.version || '', nv = u.version || '';
@@ -737,6 +738,9 @@ function modalHtml(ph, app) {
     '<p class="note" id="dlMb">' + dlLine(u) + '</p><div class="btns"><button id="hideUpd">Hide</button></div>';
   if (ph === 'verifying') return '<h2>Checking the download…</h2>' + head +
     '<p class="barrow"><span>Checking it\'s signed by Laptap</span><span>100%</span></p><div class="bar indet"><i></i></div>';
+  if (ph === 'ready' && autoMode()) return '<h2><span class="okmark">✓</span>Update complete...</h2>' + head + '<div class="bar full"><i style="width:100%"></i></div>' +
+      '<p class="barrow"><span>restarting Battery Logger in <span id="autoWords">' + L.autoRestartWords(autoLeft()) + '</span></span><span></span></p>' +
+      '<div class="btns"><button class="primary" id="restartBtn">Restart now</button></div>';
   if (ph === 'ready') return '<h2><span class="okmark">✓</span>Update ready</h2>' + head + '<div class="bar full"><i style="width:100%"></i></div>' +
       '<p class="barrow"><span>Installs next time you open the logger.</span><span></span></p>' +
       '<span class="msg" id="restartMsg" hidden></span>' +
@@ -761,6 +765,7 @@ function renderUpdate(s, app) {
       setText('dlPct', (u.percent || 0) + '%'); setStyle('dlBar', 'width', (u.percent || 0) + '%'); setText('dlMb', dlLine(u));
     }
   }
+  autoRestart(ph);
   var c = L.chipView(s, { hidden: hide });
   setProp('updChip', 'hidden', !c);
   if (c) setHtml('updChip', esc(c.kind === 'download' ? 'Downloading v' + u.version : c.text) +
@@ -780,14 +785,35 @@ $('updOv').addEventListener('click', function (e) {
 function restartNow() {
   unlockAudio();
   api('/api/update-restart', 'POST').then(function (r) {
-    if (!r || r.ok === false) { var m = $('restartMsg'); if (m) { m.textContent = (r && r.error) || 'Not now.'; m.hidden = false; } return poll(); }
+    if (!r || r.ok === false) {
+      // v15.2.1: a refused restart falls back to "Installs next time you open the logger" (no second automatic try)
+      restartFailed = true; autoAt = null; clearTimeout(autoTimer); render(st.snap);
+      var m = $('restartMsg'); if (m) { m.textContent = (r && r.error) || 'Not now.'; m.hidden = false; }
+      return poll();
+    }
     var u = (st.snap && st.snap.app && st.snap.app.update) || {};
     restarting = u.version || '';
     done = true; clearTimeout(pollTimer); clearTimeout(hbTimer); clearTimeout(tickTimer);
     render(st.snap); disableAll();
     setTimeout(function () { try { window.close(); } catch (e) {} }, 2000);   // if Edge refuses, the screen stays, controls off
-  }, function () { return poll(); });
+  }, function () { restartFailed = true; autoAt = null; clearTimeout(autoTimer); return poll(); });
 }
+
+// v15.2.1 (owner): when the update is ready and the logger is idle (no test, no countdown, alarm acknowledged), the
+// modal says "Update complete... restarting Battery Logger in 3.. 2.. 1.." and then presses Restart now by itself
+// (the proven path: update-restart → --after-exit → the v15 start-time swap). Only while the window is visible; a
+// test or countdown keeps the header chip, and the countdown runs once the test is Done and the alarm acknowledged.
+function autoMode() { return !restartFailed && !restarting && !document.hidden && L.autoRestart(st.snap); }
+function autoLeft() { return autoAt == null ? 3000 : autoAt - Date.now(); }
+function autoRestart(ph) {
+  if (ph !== 'ready' || !autoMode()) { autoAt = null; clearTimeout(autoTimer); return; }
+  if (autoAt == null) autoAt = Date.now() + 3000;
+  clearTimeout(autoTimer);
+  if (autoLeft() <= 0) { autoAt = null; restartNow(); return; }
+  setText('autoWords', L.autoRestartWords(autoLeft()));
+  autoTimer = setTimeout(function () { if (st.snap) renderUpdate(st.snap, st.snap.app || {}); }, Math.min(250, Math.max(10, autoLeft())));
+}
+document.addEventListener('visibilitychange', function () { if (st.snap) renderUpdate(st.snap, st.snap.app || {}); });
 
 // The 1 s tick (E7): only while visible: Logging / Paused (clock), Countdown (words), the update modal's own countdown.
 function tickOnce(hidden) {
@@ -854,8 +880,24 @@ function command(path, body, msgId) {
   return api(path, 'POST', body).then(function (r) {
     if (r && r.ok === false && msgId) { $(msgId).textContent = r.error || 'Not now.'; $(msgId).hidden = false; }
     return poll().then(function () { return r; });
-  }, function () { return poll(); });
+  }, function () { restartFailed = true; autoAt = null; clearTimeout(autoTimer); return poll(); });
 }
+
+// v15.2.1 (owner): when the update is ready and the logger is idle (no test, no countdown, alarm acknowledged), the
+// modal says "Update complete... restarting Battery Logger in 3.. 2.. 1.." and then presses Restart now by itself
+// (the proven path: update-restart → --after-exit → the v15 start-time swap). Only while the window is visible; a
+// test or countdown keeps the header chip, and the countdown runs once the test is Done and the alarm acknowledged.
+function autoMode() { return !restartFailed && !restarting && !document.hidden && L.autoRestart(st.snap); }
+function autoLeft() { return autoAt == null ? 3000 : autoAt - Date.now(); }
+function autoRestart(ph) {
+  if (ph !== 'ready' || !autoMode()) { autoAt = null; clearTimeout(autoTimer); return; }
+  if (autoAt == null) autoAt = Date.now() + 3000;
+  clearTimeout(autoTimer);
+  if (autoLeft() <= 0) { autoAt = null; restartNow(); return; }
+  setText('autoWords', L.autoRestartWords(autoLeft()));
+  autoTimer = setTimeout(function () { if (st.snap) renderUpdate(st.snap, st.snap.app || {}); }, Math.min(250, Math.max(10, autoLeft())));
+}
+document.addEventListener('visibilitychange', function () { if (st.snap) renderUpdate(st.snap, st.snap.app || {}); });
 $('startBtn').onclick = function () { command('/api/arm', null, 'preMsg'); };
 $('cancelBtn').onclick = function () { command('/api/cancel', null, 'preMsg'); };
 $('newBtn').onclick = function () { command('/api/new', null, 'doneMsg'); };
