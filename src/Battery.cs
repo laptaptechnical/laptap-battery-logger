@@ -43,6 +43,13 @@ public class StaticInfo
     }
 }
 
+// v16 §5: one battery's live reading, keyed by its WMI InstanceName.
+public class BatLive
+{
+    public string Id, State = "idle";   // charging | discharging | idle
+    public double? Mwh, RateMw, Mv;
+}
+
 public class Sample
 {
     public long Ms;
@@ -53,6 +60,7 @@ public class Sample
     public string RateSrc = "";
     public bool Ac, Charging, Saver;
     public double?[] B = new double?[0];
+    public List<BatLive> Per = new List<BatLive>();   // v16: per battery, by InstanceName
     public string Note = "";
 }
 
@@ -165,24 +173,25 @@ public static class Battery
         if (Rules.IsPlaceholderSerial(si.Serial)) { si.Serial = Environment.MachineName; si.SerialSource = "computer name"; }
 
         bool ok = false;
-        if (fullReport) si.Batteries = ReadReport(out ok);
+        List<BatteryInfo> report = fullReport ? ReadReport(out ok) : new List<BatteryInfo>();
         si.ReportOk = ok;
-        if (!ok)
+        // v16 §5 (I7): the WMI batteries are the list, joined by InstanceName; the powercfg rows fill design, maker,
+        // chemistry and cycles by index only when the counts agree.
+        List<KeyValuePair<string, double?>> full = new List<KeyValuePair<string, double?>>();
+        Dictionary<string, double?> cycles = new Dictionary<string, double?>();
+        try
         {
-            // Fallback: full capacity from WMI, design unknown.
-            try
-            {
-                using (ManagementObjectCollection c = Query(@"root\wmi", "SELECT InstanceName, FullChargedCapacity FROM BatteryFullChargedCapacity"))
-                    foreach (ManagementObject o in c) using (o)
-                    {
-                        BatteryInfo b = new BatteryInfo();
-                        b.Id = Str(o["InstanceName"]); b.FullMwh = NumOrNull(Str(o["FullChargedCapacity"]));
-                        b.Relative = b.FullMwh.HasValue && b.FullMwh.Value <= 100;
-                        si.Batteries.Add(b);
-                    }
-            }
-            catch { }
+            using (ManagementObjectCollection c = Query(@"root\wmi", "SELECT InstanceName, FullChargedCapacity FROM BatteryFullChargedCapacity"))
+                foreach (ManagementObject o in c) using (o) full.Add(new KeyValuePair<string, double?>(Str(o["InstanceName"]), NumOrNull(Str(o["FullChargedCapacity"]))));
         }
+        catch { }
+        try
+        {
+            using (ManagementObjectCollection c = Query(@"root\wmi", "SELECT InstanceName, CycleCount FROM BatteryCycleCount"))
+                foreach (ManagementObject o in c) using (o) cycles[Str(o["InstanceName"])] = NumOrNull(Str(o["CycleCount"]));
+        }
+        catch { }
+        si.Batteries = JoinStatic(full, cycles, report);
         si.Brightness = ReadBrightness();
         si.PowerPlan = ReadPlan();
         si.CriticalPct = ReadCriticalPct();
@@ -190,6 +199,47 @@ public static class Battery
         Native.SYSTEM_POWER_STATUS ps;
         if (Native.GetSystemPowerStatus(out ps)) si.Saver = (ps.SystemStatusFlag & 1) == 1;
         return si;
+    }
+
+    // v16 §5 (I7): pure join, tested with shuffled WMI order. full = WMI FullChargedCapacity rows (InstanceName, mWh) in
+    // WMI order; cycles = BatteryCycleCount by InstanceName; report = powercfg rows. With no WMI rows, the powercfg rows as
+    // they are (v15 behaviour). The WMI list is sorted by InstanceName, so "Battery 1" is stable whatever WMI returns.
+    public static List<BatteryInfo> JoinStatic(List<KeyValuePair<string, double?>> full, Dictionary<string, double?> cycles, List<BatteryInfo> report)
+    {
+        if (full == null || full.Count == 0) return report ?? new List<BatteryInfo>();
+        List<KeyValuePair<string, double?>> sorted = new List<KeyValuePair<string, double?>>(full);
+        sorted.Sort(delegate(KeyValuePair<string, double?> a, KeyValuePair<string, double?> b) { return string.CompareOrdinal(a.Key, b.Key); });
+        bool byIndex = report != null && report.Count == sorted.Count;
+        List<BatteryInfo> l = new List<BatteryInfo>();
+        for (int i = 0; i < sorted.Count; i++)
+        {
+            BatteryInfo b = new BatteryInfo();
+            b.Id = sorted[i].Key;
+            b.FullMwh = sorted[i].Value.HasValue && sorted[i].Value.Value > 0 ? sorted[i].Value : null;
+            BatteryInfo r = byIndex ? report[i] : null;
+            if (r != null)
+            {
+                b.Manufacturer = r.Manufacturer; b.Chemistry = r.Chemistry; b.DesignMwh = r.DesignMwh; b.Cycles = r.Cycles;
+                if (!b.FullMwh.HasValue) b.FullMwh = r.FullMwh;
+            }
+            double? cy;
+            if (cycles != null && cycles.TryGetValue(b.Id, out cy) && cy.HasValue && cy.Value > 0) b.Cycles = cy;
+            b.Relative = (b.DesignMwh.HasValue && b.DesignMwh.Value <= 100) || (b.FullMwh.HasValue && b.FullMwh.Value <= 100) || (r != null && r.Relative);
+            l.Add(b);
+        }
+        return l;
+    }
+
+    // v16 §5: one WMI BatteryStatus row → a battery's live reading.
+    public static BatLive LiveRow(string id, double? rem, bool charging, bool discharging, double? chargeRate, double? dischargeRate, double? mv)
+    {
+        BatLive b = new BatLive();
+        b.Id = id; b.Mwh = rem;
+        b.State = discharging ? "discharging" : charging ? "charging" : "idle";
+        double? r = discharging ? dischargeRate : charging ? chargeRate : null;
+        b.RateMw = r.HasValue && r.Value > 0 && r.Value <= 300000 ? r : null;
+        b.Mv = mv.HasValue && mv.Value > 0 ? mv : null;
+        return b;
     }
 
     // Re-read only full capacity (M7: the gauge may re-learn during a run).
@@ -294,6 +344,8 @@ public static class Battery
                     {
                         double? rem = NumOrNull(Str(o["RemainingCapacity"]));
                         per.Add(rem);
+                        s.Per.Add(LiveRow(Str(o["InstanceName"]), rem, Str(o["Charging"]) == "True", Str(o["Discharging"]) == "True",
+                            NumOrNull(Str(o["ChargeRate"])), NumOrNull(Str(o["DischargeRate"])), NumOrNull(Str(o["Voltage"]))));
                         if (rem.HasValue) { total += rem.Value; anyMwh = true; }
                         bool ch = Str(o["Charging"]) == "True", dis = Str(o["Discharging"]) == "True";
                         charging |= ch; discharging |= dis;
@@ -307,6 +359,7 @@ public static class Battery
         }
         catch { }
         s.B = per.ToArray();
+        s.Per.Sort(delegate(BatLive a, BatLive b) { return string.CompareOrdinal(a.Id, b.Id); });
         s.Charging = charging;
         double? m = anyMwh ? total : (double?)null, rt = anyRate ? rate : (double?)null, p = s.Pct;
         Rules.ValidSample(ref rt, ref m, ref p, fullMwh);

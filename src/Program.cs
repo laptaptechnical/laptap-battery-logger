@@ -127,6 +127,11 @@ static class Program
             server.LogicJs = Encoding.UTF8.GetBytes(logic);
             server.GetSnapshot = delegate { return en.Snapshot; };
             server.GetApp = en.AppDict;
+            // v16 §1/§6: the embedded logo and the packaged video (served from the resource stream, never copied to memory)
+            server.LogoSvg = ResourceBytes("brand/logo.svg");
+            server.MediaExt = MediaResource();
+            server.OpenMedia = delegate { return server.MediaExt == null ? null : Assembly.GetExecutingAssembly().GetManifestResourceStream("loop." + server.MediaExt); };
+            en.MediaInfo = MediaInfoDict(server.MediaExt);
             Updater.Changed = delegate { en.RequestPublish = true; };
             string passArgs = string.Join(" ", passOn.ToArray());
             en.SpawnAfterExit = delegate { return SpawnAfterExit(passArgs); };
@@ -143,6 +148,15 @@ static class Program
             if (!qaNoWindow) { try { OpenWindow(url); } catch (Exception ex) { LogError("could not open the window", ex); } }   // M11
 
             en.Recover();
+            // v16 §4 (C1, I6): suspend / resume → a command for the main thread; the callback waits ≤ 1.5 s on a suspend.
+            PowerNotify.Start(delegate(int pbt)
+            {
+                string cmd = PowerNotify.CommandFor(pbt);
+                if (cmd == null) return;
+                Command c = new Command(); c.Name = cmd; c.Body = new Dictionary<string, object>(); c.Body["ms"] = Rules.NowMs();
+                try { server.Commands.Add(c); } catch { return; }
+                if (cmd == "suspend") c.Done.Wait(1500);
+            });
             if (en.S == null || en.S.Status == "done") { StaticInfo si = Battery.ReadStatic(true); if (en.S == null) en.Info = si; else if (en.S.StartInfo == null) en.Info = si; }
             en.Tick();
             en.Publish();
@@ -188,6 +202,7 @@ static class Program
                 if (en.ShouldExit()) break;
             }
             stopping = true;
+            PowerNotify.Stop();
             server.Stop();
             DeleteHelperIfOurs();   // audit I3: never another process's helper.json
             try { mutex.ReleaseMutex(); } catch { }
@@ -301,6 +316,38 @@ static class Program
             return 0;
         }
         catch (Exception ex) { Updater.Log("swap step: " + ex.Message); return -1; }
+    }
+
+    internal static byte[] ResourceBytes(string name)
+    {
+        try
+        {
+            using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream(name))
+            {
+                if (s == null) return null;
+                using (MemoryStream m = new MemoryStream()) { s.CopyTo(m); return m.ToArray(); }
+            }
+        }
+        catch { return null; }
+    }
+
+    // v16 §6: which packaged video is embedded ("webm" wins over "mp4"), or null.
+    internal static string MediaResource()
+    {
+        foreach (string ext in new string[] { "webm", "mp4" })
+        {
+            try { using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("loop." + ext)) if (s != null) return ext; } catch { }
+        }
+        return null;
+    }
+
+    internal static Dictionary<string, object> MediaInfoDict(string ext)
+    {
+        Dictionary<string, object> m = Engine.MediaNone();
+        if (ext == null) return m;
+        m["packaged"] = ext;
+        try { using (Stream s = Assembly.GetExecutingAssembly().GetManifestResourceStream("loop." + ext)) m["sizeBytes"] = s.Length; } catch { }
+        return m;
     }
 
     static string Resource(string name)

@@ -31,6 +31,11 @@ public class Server
     public Func<Dictionary<string, object>> GetApp;   // v15.1: app.* at serve time (the download % between publishes)
     public Action<Exception> OnCrash = delegate { };
     public byte[] IndexHtml = new byte[0], LogicJs = new byte[0];
+    // ---- v16 §6: the brand logo and the packaged video (C2, C3, M5) ----
+    public byte[] LogoSvg;                                   // /brand/logo.svg (null → 404)
+    public string MediaExt;                                  // "webm" | "mp4" | null (no packaged video → /media/* 404)
+    public Func<Stream> OpenMedia = delegate { return null; };   // a seekable stream of the embedded video
+    public const long MediaChunk = 1048576;                  // each media response is capped at 1 MB; Edge asks for the next range
     long lastStateGetMs;   // the countdown only auto-starts while a page is polling (plan §3)
     public long LastStateGetMs { get { return Interlocked.Read(ref lastStateGetMs); } }
     public Action OnFirstState = delegate { };   // U1: the updated child says "owner" after the first answered poll
@@ -63,6 +68,8 @@ public class Server
             return 0;
         }
         if (method == "GET" && (path == "/" || path == "/index.html" || path == "/logic.js")) return 0;
+        // v16: no token for the logo and the video (an <img>/<video> can't send one); loopback + Host still apply.
+        if (method == "GET" && (path == "/brand/logo.svg" || path == "/media/loop.webm" || path == "/media/loop.mp4")) return 0;
         return 404;
     }
 
@@ -82,8 +89,79 @@ public class Server
         h["Cache-Control"] = "no-store";
         h["X-Content-Type-Options"] = "nosniff";
         h["Referrer-Policy"] = "no-referrer";
-        h["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'";
+        h["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'";
         return h;
+    }
+
+    // v16 §6: a Range header → the bytes to send. Returns 206 (start..end inclusive, capped at cap bytes) or 416.
+    // No header (a full GET) is answered like "bytes=0-" (capped). Suffix ranges ("bytes=-500") count from the end.
+    public static int ParseRange(string header, long length, long cap, out long start, out long end)
+    {
+        start = 0; end = -1;
+        if (length <= 0) return 416;
+        string h = (header ?? "").Trim();
+        if (h.Length == 0) h = "bytes=0-";
+        if (!h.StartsWith("bytes=", StringComparison.OrdinalIgnoreCase) || h.IndexOf(',') >= 0) return 416;
+        string spec = h.Substring(6).Trim();
+        int dash = spec.IndexOf('-');
+        if (dash < 0) return 416;
+        string a = spec.Substring(0, dash).Trim(), b = spec.Substring(dash + 1).Trim();
+        long x, y;
+        if (a.Length == 0)
+        {
+            if (!long.TryParse(b, NumberStyles.None, CultureInfo.InvariantCulture, out y) || y <= 0) return 416;
+            start = Math.Max(0, length - y); end = length - 1;
+        }
+        else
+        {
+            if (!long.TryParse(a, NumberStyles.None, CultureInfo.InvariantCulture, out x) || x >= length) return 416;
+            start = x;
+            end = b.Length == 0 ? length - 1 : (long.TryParse(b, NumberStyles.None, CultureInfo.InvariantCulture, out y) ? Math.Min(y, length - 1) : -1);
+            if (end < start) return 416;
+        }
+        if (end - start + 1 > cap) end = start + cap - 1;
+        return 206;
+    }
+
+    // Off the server thread (C2): a slow or stalled media read can never block /api/state or a POST.
+    void ServeMedia(HttpListenerContext ctx)
+    {
+        try
+        {
+            HttpListenerResponse r = ctx.Response;
+            string type = MediaExt == "mp4" ? "video/mp4" : "video/webm";
+            using (Stream s = OpenMedia())
+            {
+                if (s == null) { Send(ctx, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("404")); return; }
+                long len = s.Length, a, b;
+                int code = ParseRange(ctx.Request.Headers["Range"], len, MediaChunk, out a, out b);
+                foreach (KeyValuePair<string, string> h in ResponseHeaders(type)) { if (h.Key == "Content-Type") r.ContentType = h.Value; else r.Headers[h.Key] = h.Value; }
+                r.Headers["Cache-Control"] = "private, max-age=3600";
+                r.Headers["Accept-Ranges"] = "bytes";
+                if (code == 416)
+                {
+                    r.StatusCode = 416; r.Headers["Content-Range"] = "bytes */" + len.ToString(CultureInfo.InvariantCulture);
+                    r.ContentLength64 = 0; r.OutputStream.Close(); return;
+                }
+                r.StatusCode = 206;
+                r.Headers["Content-Range"] = "bytes " + a.ToString(CultureInfo.InvariantCulture) + "-" + b.ToString(CultureInfo.InvariantCulture) + "/" + len.ToString(CultureInfo.InvariantCulture);
+                long n = b - a + 1;
+                r.ContentLength64 = n;
+                s.Seek(a, SeekOrigin.Begin);
+                byte[] buf = new byte[65536];
+                while (n > 0)
+                {
+                    int got = s.Read(buf, 0, (int)Math.Min(buf.Length, n));
+                    if (got <= 0) break;
+                    r.OutputStream.Write(buf, 0, got);
+                    n -= got;
+                }
+                r.OutputStream.Close();
+            }
+        }
+        catch (HttpListenerException) { try { ctx.Response.Abort(); } catch { } }   // the player dropped the connection
+        catch (IOException) { try { ctx.Response.Abort(); } catch { } }
+        catch { try { ctx.Response.Abort(); } catch { } }
     }
 
     public bool Start()
@@ -112,6 +190,14 @@ public class Server
             {
                 HttpListenerContext ctx;
                 try { ctx = listener.GetContext(); } catch (HttpListenerException) { return; } catch (ObjectDisposedException) { return; } catch (InvalidOperationException) { return; }
+                HttpListenerContext c = ctx;
+                string p = null; try { p = c.Request.Url.AbsolutePath; } catch { }
+                if (p != null && p.StartsWith("/media/", StringComparison.Ordinal))
+                {
+                    // v16 (C2): media goes to the ThreadPool and the loop returns at once.
+                    ThreadPool.QueueUserWorkItem(delegate { try { Handle(c); } catch { try { c.Response.Abort(); } catch { } } });
+                    continue;
+                }
                 try { Handle(ctx); } catch { try { ctx.Response.Abort(); } catch { } }
             }
         }
@@ -146,6 +232,16 @@ public class Server
 
         if (path == "/" || path == "/index.html") { Send(ctx, 200, "text/html; charset=utf-8", IndexHtml); return; }
         if (path == "/logic.js") { Send(ctx, 200, "text/javascript; charset=utf-8", LogicJs); return; }
+        if (path == "/brand/logo.svg")
+        {
+            if (LogoSvg == null) { Send(ctx, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("404")); return; }
+            Send(ctx, 200, "image/svg+xml", LogoSvg); return;
+        }
+        if (path == "/media/loop.webm" || path == "/media/loop.mp4")
+        {
+            if (MediaExt == null || path != "/media/loop." + MediaExt) { Send(ctx, 404, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("404")); return; }
+            ServeMedia(ctx); return;
+        }
 
         if (q.HttpMethod == "GET" && path == "/api/state")
         {
@@ -186,7 +282,8 @@ public class Server
 #endif
         return name == "heartbeat" || name == "stop" || name == "ack-alarm" || name == "alarm-pct" || name == "save-csv"
             || name == "arm" || name == "cancel" || name == "new"
-            || name == "update-restart" || name == "update-retry" || name == "open-report";   // v15.1
+            || name == "update-restart" || name == "update-retry" || name == "open-report"   // v15.1
+            || name == "start-anyway" || name == "pause" || name == "resume" || name == "video";   // v16 (suspend / resume-power are internal)
     }
 
     static Dictionary<string, object> Err(string m)

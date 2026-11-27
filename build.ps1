@@ -2,7 +2,9 @@
 # 0) version from VERSION → src/Version.g.cs + src/app.manifest; no version literal anywhere else in src/
 # 1) node tests  2) compile the logger exe with the built-in .NET Framework csc (C# 5)
 # 3) run-from-removable-media PE flags  4) FileVersion = VERSION; a release build has no test hooks
-# 5) compile + run HelperTests.exe  6) the output folder holds exactly one exe, < 400 KB.
+# 5) compile + run HelperTests.exe  6) the output folder holds exactly one exe; v16 size gates (tools/size-gates.ps1):
+#    the packaged video ≤ 4,500,000 B and the exe ≤ 4,900,000 B. Embeds src/web/brand/logo.svg and assets/video/loop.webm
+#    (or loop.mp4; WebM wins) when present.
 # Installs nothing. Fails on the first failing step.
 param(
     [string]$Out = 'dist',      # e.g. -Out dist-next to leave a frozen dist alone
@@ -69,6 +71,21 @@ if (-not $TestHooks) {
 }
 
 $src = Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'src') -Filter *.cs | ForEach-Object { $_.FullName }
+
+# ---- v16 resources: the real logo (never redrawn) and the packaged video ----
+$logo = Join-Path $PSScriptRoot 'src\web\brand\logo.svg'
+if (-not (Test-Path -LiteralPath $logo)) { throw 'src\web\brand\logo.svg is missing (copy of laptapenterprises/public/laptap_logo_transparent.svg)' }
+$sibling = Join-Path (Split-Path -Parent $PSScriptRoot) 'laptapenterprises\public\laptap_logo_transparent.svg'
+if (Test-Path -LiteralPath $sibling) {
+    if ((Get-FileHash -LiteralPath $logo).Hash -ne (Get-FileHash -LiteralPath $sibling).Hash) { throw 'src\web\brand\logo.svg differs from laptapenterprises/public/laptap_logo_transparent.svg (artwork must be the real file)' }
+    Write-Host 'logo.svg = the laptapenterprises artwork (hash match)'
+}
+$video = $null
+foreach ($v in @('assets\video\loop.webm', 'assets\video\loop.mp4')) { $p = Join-Path $PSScriptRoot $v; if (Test-Path -LiteralPath $p) { $video = $p; break } }
+$res = @('/resource:src\web\index.html,index.html', '/resource:src\web\logic.js,logic.js', "/resource:$logo,brand/logo.svg")
+if ($video) { $res += "/resource:$video,loop$([IO.Path]::GetExtension($video))" }
+Write-Host ('packaged video: ' + $(if ($video) { (Split-Path -Leaf $video) + ' (' + (Get-Item -LiteralPath $video).Length + ' bytes)' } else { 'none' }))
+if ($video) { & (Join-Path $PSScriptRoot 'tools\size-gates.ps1') -Exe $logo -Video $video | Out-Null }   # fail fast, before compiling
 $defs = if ($TestHooks) { @('/define:TESTHOOKS') } else { @() }
 
 # ---- 1. node tests ----
@@ -85,7 +102,7 @@ if (-not $SkipTests) {
 Step 'compile Laptap Battery Logger.exe'
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $cargs = @('/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/win32icon:src\laptap.ico', '/win32manifest:src\app.manifest') + $refs + $defs +
-        @('/resource:src\web\index.html,index.html', '/resource:src\web\logic.js,logic.js', "/out:$exe") + $src
+        $res + @("/out:$exe") + $src
 & $csc @cargs
 if ($LASTEXITCODE -ne 0) { throw 'compile failed (logger)' }
 
@@ -111,8 +128,8 @@ if (-not $TestHooks) {
     $raw = [IO.File]::ReadAllBytes($exe)
     $latin = [Text.Encoding]::GetEncoding(28591).GetString($raw)
     $utf16 = [Text.Encoding]::Unicode.GetString($raw) + [Text.Encoding]::Unicode.GetString($raw, 1, $raw.Length - 1)
-    foreach ($needle in @('LAPTAP_BL_TEST_BASE', 'LAPTAP_BL_TEST_PUBKEYS', 'LAPTAP_BL_TEST_NS', '/api/start')) {
-        if ($latin.Contains($needle) -or $utf16.Contains($needle)) { throw "release exe contains test hook text: $needle" }
+    foreach ($needle in @('LAPTAP_BL_TEST_BASE', 'LAPTAP_BL_TEST_PUBKEYS', 'LAPTAP_BL_TEST_NS', '/api/start(?!-anyway)')) {   # v16: /api/start-anyway is a real route
+        if ([regex]::IsMatch($latin, $needle) -or [regex]::IsMatch($utf16, $needle)) { throw "release exe contains test hook text: $needle" }
     }
     Write-Host 'no test hooks in the release exe'
 }
@@ -124,8 +141,8 @@ if (-not $SkipTests) {
     New-Item -ItemType Directory -Force -Path $tbin | Out-Null
     $texe = Join-Path $tbin 'HelperTests.exe'
     $targs = @('/nologo', '/target:exe', '/platform:anycpu', '/main:HelperTests', '/define:TESTHOOKS') + $refs +
-             @('/resource:src\web\index.html,index.html', '/resource:src\web\logic.js,logic.js', "/out:$texe") + $src +
-             @('tools\KeyTools.cs', 'tests\V15Tests.cs', 'tests\V151Tests.cs', 'tests\HelperTests.cs')
+             @('/resource:src\web\index.html,index.html', '/resource:src\web\logic.js,logic.js', "/resource:$logo,brand/logo.svg", "/out:$texe") + $src +
+             @('tools\KeyTools.cs', 'tests\V15Tests.cs', 'tests\V151Tests.cs', 'tests\V16Tests.cs', 'tests\HelperTests.cs')
     & $csc @targs
     if ($LASTEXITCODE -ne 0) { throw 'compile failed (tests)' }
     & $texe (Join-Path $PSScriptRoot 'tests\fixtures') $exe (Join-Path $PSScriptRoot 'src\web\index.html')
@@ -138,6 +155,6 @@ $files = @(Get-ChildItem -LiteralPath $outDir -Force)
 if ($files.Count -ne 1) { throw ($Out + '\ must hold exactly one file, found: ' + (($files | ForEach-Object Name) -join ', ')) }
 $kb = [Math]::Round((Get-Item -LiteralPath $exe).Length / 1KB, 1)
 Write-Host "$Out\Laptap Battery Logger.exe = $kb KB"
-if ($kb -ge 400) { throw "exe is $kb KB (target < 400 KB)" }
+& (Join-Path $PSScriptRoot 'tools\size-gates.ps1') -Exe $exe -Video $video
 Write-Host ''
 Write-Host 'BUILD OK'

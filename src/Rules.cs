@@ -43,8 +43,9 @@ public static class Rules
 
     public static bool CanStart(double? pct) { return pct.HasValue && pct.Value >= 96; }
 
-    static readonly HashSet<string> Open = new HashSet<string> { "unplugged", "charger_out", "gap_end" };
-    static readonly HashSet<string> Close = new HashSet<string> { "charger_in", "gap", "alarm", "stop", "end", "hibernated" };
+    // v16 §7 (I4): an open/close event while already open/closed is a no-op.
+    static readonly HashSet<string> Open = new HashSet<string> { "unplugged", "charger_out", "gap_end", "resume", "wake" };
+    static readonly HashSet<string> Close = new HashSet<string> { "charger_in", "gap", "pause", "sleep", "alarm", "stop", "end", "hibernated", "battery_ran_out" };
 
     public static List<Seg> Segments(IList<Ev> evs)
     {
@@ -225,6 +226,7 @@ public static class Rules
             case "alarm": return "Ended at alarm";
             case "stop": return "Stopped early";
             case "hibernated": return "Hibernated at " + at;
+            case "battery_ran_out": return "Battery ran out: Windows hibernated at " + at;   // v16 D7
             case "shutdown": return "Shut down at " + at;
             case "shutdown_user": return "Shut down by user at " + at;
             case "logger_stopped": return "Logger stopped at " + at;

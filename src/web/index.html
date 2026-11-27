@@ -5,44 +5,49 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Battery Logger</title>
 <style>
-/* v15.1 (prototype battery-logger-v15.1.html, taken as-is): one stage per state under a thin Finale header.
-   Pre-test = one giant instruction + one big picture. Logging / Paused = a full-width colour band. Sizes use container
-   units of the app frame, so the page fits 1024×600 and 1366×768. */
+/* v16 (prototype battery-logger-v16.html): one stage per state under a navy Laptap header. Colours come from the logo
+   file itself (§1, D1): navy #053299 = header + primary buttons; yellow #f7ee22 = accent only (focus ring, LOGGING dot,
+   chips), never text on white. Finale density and fonts stay. Sizes use container units, so it fits 1024×600. */
 :root{
-  --bg:#ffffff; --panel:#f5f7f9; --line:#dde2e7; --fg:#16191d; --muted:#66707a;
-  --accent:#0070d2; --on-color:#ffffff;
+  --bg:#ffffff; --panel:#f5f6fa; --line:#dde1ea; --fg:#141824; --muted:#646b7a;
+  --brand:#053299; --brand-fg:#fdfdfc; --hi:#f7ee22;
+  --accent:#053299; --on-color:#ffffff;
   --go:#1f7a3d; --go-soft:#e6f4ea; --wait:#a85f00; --wait-ground:#f2a01c; --wait-soft:#fdf2df; --bad:#c23934; --bad-soft:#fbe9e8;
-  --count:#0070d2; --log:#1f8a43; --scrim:rgba(12,18,26,.5); --gap:#eef1f4;
+  --count:#053299; --log:#1f8a43; --scrim:rgba(5,14,40,.55); --gap:#eef1f4;
   --font:"Helvetica Neue",Helvetica,Arial,sans-serif; --mono:Consolas,"Cascadia Mono",monospace;
 }
 @media (prefers-color-scheme:dark){:root{
-  --bg:#15181c; --panel:#1c2025; --line:#2e353d; --fg:#e8ebee; --muted:#9aa3ad;
-  --accent:#3d9bf0; --on-color:#ffffff;
+  --bg:#13161e; --panel:#1a1e28; --line:#2c3240; --fg:#e8ebf2; --muted:#9aa2b3;
+  --brand:#0a3aa8; --brand-fg:#fdfdfc; --hi:#f7ee22;
+  --accent:#9db4f5; --on-color:#ffffff;
   --go:#5cc27e; --go-soft:#15301f; --wait:#f0b04a; --wait-ground:#b9740d; --wait-soft:#33270f; --bad:#f0716b; --bad-soft:#3a1c1b;
-  --count:#0b5fb0; --log:#17703a; --scrim:rgba(0,0,0,.6); --gap:#242a31; color-scheme:dark}}
+  --count:#0a3aa8; --log:#17703a; --scrim:rgba(0,0,0,.6); --gap:#242a31; color-scheme:dark}}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font:13px/1.4 var(--font);font-variant-numeric:tabular-nums}
 .app{width:100%;height:100%;min-height:420px;background:var(--bg);display:flex;flex-direction:column;container-type:size;position:relative;overflow:hidden}
-header{height:40px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--line);background:var(--bg);position:relative;z-index:2}
-.tile{width:26px;height:26px;border-radius:4px;background:var(--accent);display:grid;place-items:center;flex:none}
-.tile svg{width:16px;height:16px}
-header h1{font-size:15px;font-weight:600;margin:0;white-space:nowrap}
-.unit{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+header{height:44px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px 0 6px;background:var(--brand);color:var(--brand-fg);position:relative;z-index:2}
+/* the real logo artwork (laptapenterprises/public/laptap_logo_transparent.svg), on a white tile because it contains navy */
+.tile{width:36px;height:36px;border-radius:6px;background:#fdfdfc;display:grid;place-items:center;flex:none;overflow:hidden}
+.tile img{width:44px;height:44px;max-width:none}
+.co{display:flex;flex-direction:column;line-height:1.1;min-width:0}
+.co small{font-size:11px;opacity:.85;white-space:nowrap}
+header h1{font-size:15px;font-weight:700;margin:0;white-space:nowrap}
+.unit{color:var(--brand-fg);opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;padding-left:10px;border-left:1px solid rgba(253,253,252,.3)}
 .spacer{flex:1}
-.ver{font-size:12px;color:var(--muted);white-space:nowrap}
+.ver{font-size:12px;opacity:.8;white-space:nowrap}
 .ver.note{text-decoration:underline dotted;cursor:help}
-.chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:12px;font-size:12px;white-space:nowrap;background:var(--panel);color:var(--muted);border:1px solid var(--line)}
-.chip.off{color:var(--bad);border-color:var(--bad)}
-.chip .mini{width:46px;height:5px;border-radius:3px;background:var(--line);overflow:hidden}
-.chip .mini i{display:block;height:100%;background:var(--accent)}
+.chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:12px;font-size:12px;font-weight:600;white-space:nowrap;background:var(--hi);color:#053299;border:0}
+.chip.off{background:var(--bad);color:#fff}
+.chip .mini{width:46px;height:5px;border-radius:3px;background:rgba(5,50,153,.25);overflow:hidden}
+.chip .mini i{display:block;height:100%;background:#053299}
 
 button{font:inherit;height:30px;padding:0 14px;border-radius:4px;border:1px solid var(--line);background:var(--bg);color:var(--accent);cursor:pointer;white-space:nowrap}
-button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-color)}
+button.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-fg)}
 button.danger{color:var(--bad)}
 button:disabled{opacity:.45;cursor:not-allowed}
-button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:focus-visible,input:focus-visible{outline:3px solid var(--hi);outline-offset:1px;box-shadow:0 0 0 5px var(--brand)}
 button.huge{height:clamp(44px,9cqh,64px);padding:0 clamp(24px,4cqw,44px);font-size:clamp(17px,3.4cqh,24px);font-weight:600;border-radius:6px}
 .msg{color:var(--bad);font-weight:600}
 
@@ -191,14 +196,48 @@ tr.new td{animation:hl 1.4s ease-out}
   .done{grid-template-columns:1fr} .done .left{border-right:0;border-bottom:1px solid var(--line)}
   .band{grid-template-columns:1fr} .clock{text-align:left}
 }
+/* ---------- v16 additions (prototype v16) ---------- */
+.ov{inset:44px 0 0} .toast{top:54px}
+.band.log .word .dot{background:var(--hi);box-shadow:0 0 0 3px rgba(0,0,0,.12)}
+.why{font-size:.42em;font-weight:700;letter-spacing:.01em;opacity:.9;align-self:center;padding:.25em .6em;border-radius:1em;background:rgba(0,0,0,.14)}
+.band.log .why{background:rgba(255,255,255,.18)}
+.bandsub{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.band .resume{background:#141824;border-color:#141824;color:#fdfdfc}
+.band .resume:disabled{opacity:.5}
+.band .note2{font-size:clamp(12px,2.4cqh,15px);font-weight:600;padding:3px 10px;border-radius:12px;background:rgba(255,255,255,.2)}
+.band.pause .note2{background:rgba(0,0,0,.1)}
+.alt{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.alt .conf{display:inline-flex;align-items:center;gap:8px;padding:6px 8px 6px 14px;border-radius:6px;background:var(--wait-soft);font-weight:700;font-size:clamp(15px,3cqh,19px)}
+.manual{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--wait);background:var(--wait-soft);padding:3px 10px;border-radius:12px;align-self:flex-start}
+.stat.multi{grid-column:span 2;justify-content:center;gap:4px}
+.brow{display:grid;grid-template-columns:auto 1fr auto auto auto;gap:4px 12px;align-items:baseline;white-space:nowrap;font-size:clamp(13px,2.6cqh,16px)}
+.brow b{font-weight:700}
+.brow .st{font-size:12px;color:var(--muted)}
+.brow .st.dis{color:var(--go);font-weight:600}
+.runbody{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,38%)}
+.vid{border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.vidhead{display:flex;align-items:center;gap:8px;height:28px;padding:0 10px;background:var(--panel);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);flex:none}
+.vidhead b{color:var(--fg)}
+.vidhead button{height:22px;padding:0 8px;font-size:12px}
+.screen{flex:1;min-height:0;position:relative;background:#0b0f1a;display:grid;place-items:center;overflow:hidden}
+.screen video{width:100%;height:100%;object-fit:contain;display:block}
+.still{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#fdfdfc;text-align:center;padding:10px}
+.still img{width:min(46%,150px);background:#fdfdfc;border-radius:10px}
+.still span{font-size:12px;opacity:.8}
+.still.none{background:var(--panel);color:var(--muted)}
+.vpause{position:absolute;inset:0;display:grid;place-items:center;background:rgba(10,14,24,.55);color:#fff;font-weight:700;font-size:16px}
+.verr{position:absolute;left:8px;right:8px;bottom:8px;background:var(--bad);color:#fff;font-size:12px;font-weight:600;padding:6px 8px;border-radius:4px}
+.ranout .finished{color:var(--bad)} .ranout .finished i{background:var(--bad)}
+@container (max-width:760px){ .runbody{grid-template-columns:1fr;grid-template-rows:minmax(0,1fr) 180px} .vid{border-left:0;border-top:1px solid var(--line)} .stat.multi{grid-column:1/-1} }
+@container (max-height:560px){ .vid .still img{width:90px} }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
 <div class="app" id="app">
   <header>
-    <div class="tile"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/><path d="M11 9l-2 3h4l-2 3"/></svg></div>
-    <h1>Battery Logger</h1>
+    <div class="tile"><img src="brand/logo.svg" alt="Laptap"></div>
+    <div class="co"><h1>Battery Logger</h1><small>Laptap Enterprises, Inc.</small></div>
     <span class="unit" id="unit"></span>
     <span class="spacer"></span>
     <span class="chip off" id="helper" hidden></span>
@@ -216,6 +255,8 @@ tr.new td{animation:hl 1.4s ease-out}
           <p class="step" id="step"></p>
           <p class="hint" id="hint"></p>
           <div id="startWrap" hidden><button class="primary huge" id="startBtn">Start</button></div>
+          <div class="alt" id="anyArea" hidden><button class="huge" id="anyBtn">Start anyway</button><span class="hint" id="anyHint"></span>
+            <span class="conf" id="anyConf" hidden><span id="anyQ"></span> <button class="primary" id="anyYes">Start</button><button id="anyNo">Cancel</button></span></div>
           <span class="msg" id="preMsg" hidden></span>
           <div class="conds"><span class="cond" id="cB"><i>✓</i>Battery found</span><span class="cond" id="cP"><i>✓</i>Charged to 96%+</span><span class="cond" id="cA"><i>✓</i>Charger unplugged</span></div>
         </div>
@@ -224,22 +265,25 @@ tr.new td{animation:hl 1.4s ease-out}
 
     <section id="sRun" hidden>
       <div class="band log" id="band">
-        <div class="word" id="word"><span class="dot" id="wDot"></span><span class="bars" id="wBars" hidden><i></i><i></i></span><span id="bigWord">LOGGING</span></div>
+        <div class="word" id="word"><span class="dot" id="wDot"></span><span class="bars" id="wBars" hidden><i></i><i></i></span><span id="bigWord">LOGGING</span><span class="why" id="why" hidden></span></div>
         <div class="clock"><span id="elapsed">0:00:00</span><small id="clockSub">elapsed</small></div>
-        <div class="bandsub" id="bandsub"></div>
+        <div class="bandsub"><span id="bandsub"></span><button class="huge resume" id="resumeBtn" hidden>Resume</button><span class="note2" id="manualPill" hidden></span></div>
       </div>
       <div class="stats">
         <div class="stat"><span class="k">Charge</span><span class="v"><span class="batt"><i id="battFill" style="width:0%"></i></span><span id="pct">--%</span></span><span class="s" id="pctSub"></span></div>
         <div class="stat"><span class="k">Time to alarm</span><span class="v" id="eta">Measuring…</span><span class="s" id="etaSub"></span></div>
-        <div class="stat"><span class="k">Power</span><span class="v m" id="watts">n/a</span><span class="s" id="wattsSub"></span></div>
-        <div class="stat"><span class="k">Health</span><span class="v m" id="health">n/a</span><span class="s" id="healthSub"></span></div>
+        <div class="stat" id="powerTile"><span class="k">Power</span><span class="v m" id="watts">n/a</span><span class="s" id="wattsSub"></span></div>
+        <div class="stat" id="healthTile"><span class="k">Health</span><span class="v m" id="health">n/a</span><span class="s" id="healthSub"></span></div>
+        <div class="stat multi" id="multiTile" hidden><span class="k" id="multiHead"></span><div id="multiRows"></div></div>
       </div>
       <div class="actions">
         <label for="alarmPct">Alarm at <input type="number" id="alarmPct" min="10" max="50" value="15">%</label>
         <span class="spacer"></span>
+        <button id="pauseBtn">‖ Pause</button>
         <button class="danger" id="stopBtn">Stop test</button>
         <span class="confirm" id="stopConfirm" hidden>End the test now? <button class="danger" id="stopYes">End test</button><button id="stopNo">Keep running</button></span>
       </div>
+      <div class="runbody">
       <div class="logbox">
         <div class="loghead"><b>Log</b><span id="rowCount">0 rows</span><span>· newest on top</span><span class="spacer"></span><button class="jump" id="jumpBtn" hidden>Newest ↑</button></div>
         <div class="scroll" id="scroll">
@@ -250,14 +294,25 @@ tr.new td{animation:hl 1.4s ease-out}
           </table>
         </div>
       </div>
+      <div class="vid" id="vidPanel">
+        <div class="vidhead"><b>Video</b><span id="vidName">None</span><span class="spacer"></span><button id="muteBtn" hidden>Unmute</button><button id="vidOpenBtn">Open file</button><input type="file" id="fileIn" accept="video/*" hidden></div>
+        <div class="screen" id="screen">
+          <video id="vid" loop playsinline muted hidden></video>
+          <div class="still none" id="still"><img src="brand/logo.svg" alt=""><span>No packaged video. Use Open file.</span></div>
+          <div class="vpause" id="vpause" hidden>‖ Paused with the test</div>
+          <div class="verr" id="verr" hidden>This video format can't play here. Use WebM or MP4 (H.264).</div>
+        </div>
+      </div>
+      </div>
     </section>
 
     <section id="sDone" hidden>
-      <div class="done">
+      <div class="done" id="doneBox">
         <div class="left">
-          <div class="finished"><i>✓</i>Test finished</div>
+          <div class="finished"><i id="doneMark">✓</i><span id="doneTitle">Test finished</span></div>
           <div class="runtime" id="runtime"></div>
           <div class="range" id="range"></div>
+          <span class="manual" id="doneManual" hidden></span>
           <div class="saved" id="saved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M9 15l2 2 4-4"/></svg><div><b id="savedT">Report saved to the Desktop</b><span id="savedF"></span></div></div>
           <div class="btns"><button class="primary huge" id="newBtn">New test</button><button class="huge" id="openBtn">Open report</button><button class="huge" id="csvBtn" hidden>Save CSV</button><span class="msg" id="doneMsg" hidden></span><span class="msg" id="csvMsg" hidden></span></div>
         </div>
@@ -294,12 +349,14 @@ tr.new td{animation:hl 1.4s ease-out}
 <!-- The one report template. The exe fills it (Report.cs) and so does browser-only mode (fillReport). -->
 <template id="report"><!-- Slots (api-contract.md; plain = escaped, *Html = raw): unitModel, unitSerial, computerName, date, startTime, endTime,
 reason, startEnd, runtime, estFull, estFullEnergy, avgW, minW, maxW, healthPct, batteryRowsHtml, gapsPauses, saver,
-brightness, plan, windows, alarmNote, chartSvgHtml, eventRowsHtml, eventsMore, version --><meta charset="utf-8"><title>Battery {{unitSerial}} {{date}}</title>
+brightness, plan, windows, alarmNote, chartSvgHtml, eventRowsHtml, eventsMore, version, logoHtml, manualNote, video --><meta charset="utf-8"><title>Battery {{unitSerial}} {{date}}</title>
 <style>
 body{margin:0;font:12px/1.4 "Helvetica Neue",Helvetica,Arial,sans-serif;color:#16191d;background:#fff;font-variant-numeric:tabular-nums}
 .r{max-width:760px;margin:0 auto;padding:16px}
 .h{display:flex;align-items:center;gap:10px;border-bottom:1px solid #dfe3e8;padding-bottom:8px;flex-wrap:wrap}
-.h b{font-size:16px}.h span{color:#6b737c}.res{margin-left:auto;font-weight:600;color:#0070d2}
+.h b{font-size:16px}.h span{color:#6b737c}.res{margin-left:auto;font-weight:600;color:#053299}
+.h .logo{width:40px;height:40px}.h .co{display:flex;flex-direction:column;line-height:1.15}.h .co small{color:#646b7a}
+.manual{color:#a85f00;font-weight:600}
 .kv{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid #dfe3e8;border-radius:4px;margin:10px 0}
 .kv div{padding:5px 10px;border-bottom:1px solid #dfe3e8;display:flex;justify-content:space-between;gap:8px}
 .kv div span:first-child{color:#6b737c}
@@ -312,8 +369,9 @@ tr.gap td{background:#eef1f4;color:#6b737c}tr.alarm td{color:#c23934;font-weight
 @media print{@page{size:A4;margin:10mm}.r{padding:0}}
 </style>
 <div class="r">
-<div class="h"><b>Battery Logger</b><span>{{unitModel}} · {{unitSerial}} · {{computerName}}</span><span class="res">{{reason}}</span></div>
+<div class="h">{{logoHtml}}<span class="co"><b>Battery Logger</b><small>Laptap Enterprises, Inc.</small></span><span>{{unitModel}} · {{unitSerial}} · {{computerName}}</span><span class="res">{{reason}}</span></div>
 <div class="note">{{alarmNote}}</div>
+<div class="manual">{{manualNote}}</div>
 <div class="kv">
 <div><span>Date</span><span>{{date}} {{startTime}}–{{endTime}}</span></div>
 <div><span>Runtime</span><span>{{runtime}} ({{startEnd}})</span></div>
@@ -322,17 +380,18 @@ tr.gap td{background:#eef1f4;color:#6b737c}tr.alarm td{color:#c23934;font-weight
 <div><span>Average draw</span><span>{{avgW}}</span></div>
 <div><span>Min / max</span><span>{{minW}} / {{maxW}}</span></div>
 <div><span>Health</span><span>{{healthPct}}</span></div>
-<div><span>Gaps / pauses</span><span>{{gapsPauses}}</span></div>
+<div><span>Sleep pauses / pauses</span><span>{{gapsPauses}}</span></div>
 <div><span>Battery saver</span><span>{{saver}}</span></div>
 <div><span>Brightness</span><span>{{brightness}}</span></div>
 <div><span>Power plan</span><span>{{plan}}</span></div>
 <div><span>Windows</span><span>{{windows}}</span></div>
+<div><span>Video</span><span>{{video}}</span></div>
 </div>
 <table class="bt"><thead><tr><th>Battery</th><th>Maker</th><th>Chemistry</th><th class="n">Design Wh</th><th class="n">Full Wh</th><th class="n">Cycles</th><th class="n">Health</th></tr></thead>{{batteryRowsHtml}}</table>
 <div class="chart">{{chartSvgHtml}}</div>
 <table class="ev"><thead><tr><th>Time</th><th>Event</th><th class="n">%</th><th class="n">Wh</th><th class="n">W</th><th class="n">Elapsed</th></tr></thead>{{eventRowsHtml}}</table>
 <div class="more">{{eventsMore}}</div>
-<div class="f">Battery Logger v{{version}} · Windows data</div>
+<div class="f">Battery Logger v{{version}} · Laptap Enterprises, Inc. · Windows data</div>
 </div></template>
 
 <script src="logic.js"></script>
@@ -452,10 +511,19 @@ function rowLabel(e) {
     case 'recovered': return L.endReason(e.note || 'logger_stopped', e.pct, e.elapsedS);
     case 'report_saved': return 'Report saved';
     case 'report_failed': return 'Report not saved to the Desktop';
+    // v16
+    case 'manual_start': return 'Manual start at ' + pct(e.pct) + ' (below 96%)';
+    case 'pause': return 'Paused by you';
+    case 'resume': return 'Resumed';
+    case 'sleep': return 'Laptop asleep · paused';
+    case 'wake': case 'wake_paused': return e.type === 'wake' ? 'Woke up · resumed' : 'Woke up · still paused';
+    case 'battery_removed': return 'Battery removed';
+    case 'battery_added': return 'Battery added';
+    case 'battery_ran_out': return 'Battery ran out: Windows hibernated';
     default: return e.type;
   }
 }
-function rowKind(e) { return e.type === 'reading' ? '' : e.type === 'gap' ? 'gap' : e.type === 'charger_in' ? 'ps' : (e.type === 'alarm' || e.type === 'report_failed') ? 'alarm' : 'ev'; }
+function rowKind(e) { return e.type === 'reading' ? '' : e.type === 'gap' ? 'gap' : (e.type === 'charger_in' || e.type === 'pause' || e.type === 'sleep') ? 'ps' : (e.type === 'alarm' || e.type === 'report_failed' || e.type === 'battery_ran_out') ? 'alarm' : 'ev'; }
 function rowHtml(r, live) {
   return '<tr class="' + rowKind(r) + (live ? ' new' : '') + '"><td>' + clock(r.ms) + '</td><td>' + esc(rowLabel(r)) + '</td><td class="n">' +
     (r.pct == null ? '' : r.pct + '%') + '</td><td class="n">' + wh(r.mwh) + '</td><td class="n">' + w(r.rateMw) + '</td><td class="n">' +
@@ -606,6 +674,7 @@ function render(s) {
   if (v.stage === 'logging' || v.stage === 'paused') renderRun(s, v, n, sess);
   else { setProp('stopConfirm', 'hidden', true); setProp('stopBtn', 'hidden', false); }
   if (v.stage === 'done') renderDone(s, sess, bats);
+  renderVideo(s, v);
   if (prevMode !== st.mode) { setProp('preMsg', 'hidden', true); setProp('doneMsg', 'hidden', true); setProp('csvMsg', 'hidden', true); startTick(); }
 
   renderUpdate(s, app);
@@ -617,8 +686,11 @@ function renderPre(s, v, n, ck, app) {
   switch (v.stage) {
     case 'nobatt': tone = 'tone-bad'; key = 'nobatt'; art = battSvg(0, { empty: 1, x: 1 }); big = '';
       step = 'No battery found'; hint = 'This laptop can’t be tested. Check the battery is fitted, then open the logger again.'; break;
-    case 'low': key = 'low' + p; art = battSvg(p, { col: 'var(--wait-ground)' });
-      step = 'Plug in and charge to 96%'; hint = 'The charger is unplugged and the battery is too low to start.'; break;
+    case 'low':
+      var lowAlarm = p != null && ck.alarmPct != null && p <= ck.alarmPct;
+      key = 'low' + p + lowAlarm; art = battSvg(p, { col: lowAlarm ? 'var(--bad)' : 'var(--wait-ground)' });
+      step = 'Plug in and charge to 96%';
+      hint = ck.startAnyway ? '' : lowAlarm ? 'Too low to start, even by hand. The alarm is at ' + ck.alarmPct + '%.' : 'The charger is unplugged and the battery is too low to start.'; break;
     case 'charge': key = 'charge' + p; art = battSvg(p, { bolt: 1 });
       step = 'Charging… wait for 96%'; hint = Math.max(0, 96 - (p || 0)) + '% to go. Leave the charger in.' + (ck.chargeLimitHint ? ' Check the battery charge-limit setting.' : ''); break;
     case 'waitupd':
@@ -637,6 +709,11 @@ function renderPre(s, v, n, ck, app) {
   setHtml('bigpct', big); setProp('bigpct', 'hidden', !big);
   setText('step', step); setText('hint', hint); setProp('hint', 'hidden', !hint);
   setProp('startWrap', 'hidden', !v.showStart);
+  var any = v.stage === 'low' && !!ck.startAnyway;   // D2: hidden at or below the alarm
+  setProp('anyArea', 'hidden', !any);
+  if (!any) anyConfirming = false;
+  setProp('anyBtn', 'hidden', anyConfirming); setProp('anyHint', 'hidden', anyConfirming); setProp('anyConf', 'hidden', !anyConfirming);
+  if (any) { setText('anyHint', 'Starts now at ' + p + '%, marked as a manual start.'); setText('anyQ', L.startAnywayQuestion(p)); }
   var c = function (id, ok, now) { setProp(id, 'className', 'cond' + (ok ? ' ok' : '') + (now ? ' now' : '')); };
   c('cB', !!ck.battery, v.now === 'b'); c('cP', !!ck.pct96, v.now === 'p'); c('cA', !!ck.unplugged, v.now === 'a');
 }
@@ -652,11 +729,15 @@ function renderCountdown() {
 }
 
 function renderRun(s, v, n, sess) {
-  var paused = v.stage === 'paused';
+  var paused = v.stage === 'paused', b = L.bandView151(sess, n, st.events);
   setProp('band', 'className', paused ? 'band pause' : 'band log');
   setText('bigWord', paused ? 'PAUSED' : 'LOGGING');
   setProp('wDot', 'hidden', paused); setProp('wBars', 'hidden', !paused);
-  setText('bandsub', paused ? 'Charger plugged in. Unplug to continue.' : 'Leave the charger unplugged. The test ends by itself at ' + sess.alarmPct + '%.');
+  setText('why', b.why || ''); setProp('why', 'hidden', !b.why);
+  setText('bandsub', b.sub);
+  setProp('resumeBtn', 'hidden', !b.resume); if (!lost) setProp('resumeBtn', 'disabled', !!b.resumeOff);
+  setText('manualPill', b.manual || ''); setProp('manualPill', 'hidden', !b.manual);
+  setProp('pauseBtn', 'hidden', paused); if (!lost) setProp('pauseBtn', 'disabled', false);
   if (!document.hidden) tickOnce(false);   // hidden: h:mm is written once on hide, never by a poll (E7)
   if (document.activeElement !== $('alarmPct') && $('alarmPct').value !== String(sess.alarmPct)) $('alarmPct').value = sess.alarmPct;
   if (!lost) setProp('stopBtn', 'disabled', false);
@@ -688,6 +769,17 @@ function renderStats(s, v, n, sess, bats) {
   var hp = live.healthPct != null ? live.healthPct : (cap ? L.health(cap.full, cap.design).raw : null);
   setText('health', healthText(hp));
   setText('healthSub', cap ? wh(cap.full) + ' of ' + wh(cap.design) + ' Wh' : 'n/a');
+  // v16 §5: 2+ batteries → one row per battery replaces the Power + Health tiles.
+  var rows = L.batteryRows(bats), multi = rows.length > 1;
+  setProp('powerTile', 'hidden', multi); setProp('healthTile', 'hidden', multi); setProp('multiTile', 'hidden', !multi);
+  if (multi) {
+    var tot = 0, any = false; rows.forEach(function (r) { if (r.w != null) { tot += r.w; any = true; } });
+    setText('multiHead', 'Batteries · health · charge now · power' + (any ? ' · total ' + Math.abs(tot).toFixed(1) + ' W' : ''));
+    setHtml('multiRows', rows.map(function (r) {
+      return '<div class="brow"><b>' + esc(r.name) + '</b><span>' + esc(r.health) + '</span><span>' + esc(r.wh) + '</span><span>' + esc(r.power) +
+        '</span><span class="st' + (r.state === 'discharging' ? ' dis' : '') + '">' + esc(r.state || '') + '</span></div>';
+    }).join(''));
+  }
 }
 
 function fact(k, v, s) { return '<div class="fact"><div class="k">' + esc(k) + '</div><div class="v">' + esc(v) + '</div><div class="s">' + esc(s) + '</div></div>'; }
@@ -699,7 +791,11 @@ function renderDone(s, sess, bats) {
   var endEv = null;
   st.events.forEach(function (e) { if (e.type === 'alarm' || e.type === 'stop' || e.type === 'hibernated' || e.type === 'recovered') endEv = e; });
   var tail = r.kind === 'alarm' && endEv ? 'alarm reached at ' + hm(endEv.ms) : (r.reason || 'Test finished');
-  setText('range', (r.startEnd ? r.startEnd + ' · ' : '') + tail);
+  var ranOut = r.kind === 'battery_ran_out';
+  setProp('doneBox', 'className', ranOut ? 'done ranout' : 'done');
+  setText('doneMark', ranOut ? '!' : '✓'); setText('doneTitle', ranOut ? 'Battery ran out' : 'Test finished');
+  setText('range', ranOut ? L.ranOutLine(r.endPct, r.runtimeS) : (r.startEnd ? r.startEnd + ' · ' : '') + tail);
+  setText('doneManual', r.manualNote || ''); setProp('doneManual', 'hidden', !r.manualNote);
   var html = r.files && r.files.html;
   setProp('saved', 'className', html ? 'saved' : 'saved bad');
   setText('savedT', html ? 'Report saved to the Desktop' : 'Report not saved to the Desktop');
@@ -707,13 +803,17 @@ function renderDone(s, sess, bats) {
   setProp('openBtn', 'hidden', !html);
   setProp('csvBtn', 'hidden', !!html);   // the save failed: the CSV can be tried again (I3)
   var est = r.estFullEnergyS != null ? r.estFullEnergyS : r.estFullS;
-  var pauses = r.pauseCount || 0;
+  var pauses = r.pauseCount || 0, sleeps = r.sleepCount || 0, brows = L.batteryRows(bats), multi = brows.length > 1;
+  var estTxt = est != null ? L.fmtHMin(est) : (r.estFullText && /too short/.test(r.estFullText) ? 'n/a (too short to estimate)' : 'n/a');
   setHtml('facts',
-    fact('est. 100 → 0%', est == null ? 'n/a' : L.fmtHMin(est), r.estFullEnergyS != null ? 'from energy used' : 'from the % drop') +
-    fact('Health', healthText(r.healthPct), cap ? wh(cap.full) + ' of ' + wh(cap.design) + ' Wh' : '') +
+    fact('est. 100 → 0%', estTxt, r.estFullEnergyS != null ? 'from energy used' : 'from the % drop') +
+    fact('Health', multi ? brows.map(function (b) { return b.health; }).join(' · ') : healthText(r.healthPct),
+      multi ? brows.map(function (b) { return b.name.toLowerCase(); }).join(' · ') : (cap ? wh(cap.full) + ' of ' + wh(cap.design) + ' Wh' : '')) +
     fact('Average draw', r.avgW == null ? 'n/a' : (+r.avgW).toFixed(1) + ' W', r.minW != null && r.maxW != null ? 'min ' + (+r.minW).toFixed(1) + ' · max ' + (+r.maxW).toFixed(1) + ' W' : '') +
-    fact('Cycles', cyclesText(bats), 'reported by Windows') +
-    fact('Pauses', String(pauses), pauses ? L.fmtHMin(r.pauseS) + ', charger in' : 'none') +
+    fact('Cycles', multi ? brows.map(function (b) { return b.cycles; }).join(' · ') : cyclesText(bats), 'reported by Windows') +
+    fact('Pauses', String(pauses), pauses ? L.fmtHMin(r.pauseS) + ' paused' : 'none') +
+    fact('Sleep pauses', String(sleeps), sleeps ? L.fmtElapsed(r.sleepS) + ', not counted' : 'none') +
+    fact('Video', L.videoFact(r.video).v, L.videoFact(r.video).s) +
     fact('Brightness', r.brightnessStart == null ? 'n/a' : r.brightnessStart + '% → ' + (r.brightnessEnd == null ? 'n/a' : r.brightnessEnd + '%'), 'battery saver ' + (r.saver || 'n/a')));
 }
 
@@ -822,7 +922,8 @@ function tickOnce(hidden) {
     var t = countedNow();
     setText('elapsed', hidden ? L.fmtHm(t) : L.fmtElapsed(t));
     setText('clockSub', m === 'paused' && sess && sess.pausedSinceMs != null
-      ? 'timer stopped · paused ' + L.fmtElapsed((serverNow() - sess.pausedSinceMs) / 1000) : m === 'paused' ? 'timer stopped' : 'elapsed');
+      ? 'timer stopped · paused ' + L.fmtElapsed((serverNow() - sess.pausedSinceMs) / 1000) : m === 'paused' ? 'timer stopped'
+      : 'elapsed' + (sess && sess.sleepMs > 0 ? ' · sleep not counted' : ''));
   } else if (m === 'count') renderCountdown();
 }
 function startTick() {
@@ -899,6 +1000,61 @@ function autoRestart(ph) {
 }
 document.addEventListener('visibilitychange', function () { if (st.snap) renderUpdate(st.snap, st.snap.app || {}); });
 $('startBtn').onclick = function () { command('/api/arm', null, 'preMsg'); };
+// v16 §2: Start anyway → the inline "Start at 82%?" confirm → POST /api/start-anyway (no body; the exe re-checks)
+var anyConfirming = false;
+$('anyBtn').onclick = function () { anyConfirming = true; render(st.snap); };
+$('anyNo').onclick = function () { anyConfirming = false; render(st.snap); };
+$('anyYes').onclick = function () { anyConfirming = false; command('/api/start-anyway', null, 'preMsg'); };
+// v16 §3
+$('pauseBtn').onclick = function () { command('/api/pause', null, null); };
+$('resumeBtn').onclick = function () { command('/api/resume', null, null); };
+
+// ---------------- v16 §6: the video panel ----------------
+// The packaged loop plays muted while LOGGING, pauses on any pause, and is gone at Done. Open file plays a local file
+// (blob:) on loop, muted by default, until the window reloads. The page reports which video and how long it was on
+// screen (D10): POST /api/video {source, visibleMs} every 30 s, on every stage change and when the test ends.
+var vid = { url: null, name: '', muted: true, err: false, src: null, visibleMs: 0, lastTick: 0, sentAt: 0, sentMs: -1, sessionId: null };
+function vidSource(s) {
+  var m = s.app && s.app.media;
+  if (vid.url) return { url: vid.url, label: vid.name, source: vid.name };
+  if (m && m.packaged) return { url: '/media/loop.' + m.packaged, label: 'Packaged loop', source: 'packaged' };
+  return null;
+}
+function renderVideo(s, v) {
+  var sess = s.session, el = $('vid');
+  if (!sess || sess.id !== vid.sessionId) { vid.sessionId = sess ? sess.id : null; vid.visibleMs = 0; vid.sentMs = -1; }
+  var run = v.stage === 'logging' || v.stage === 'paused';
+  var src = vidSource(s), play = L.videoShouldPlay(v.stage) && !!src && !vid.err;
+  setText('vidName', src ? src.label : 'None');
+  setProp('muteBtn', 'hidden', !vid.url); setText('muteBtn', vid.muted ? 'Unmute' : 'Mute');
+  setProp('vpause', 'hidden', !(run && v.stage === 'paused' && src));
+  setProp('verr', 'hidden', !vid.err);
+  setProp('still', 'hidden', !!src && !vid.err);
+  if (src && el.__src !== src.url) { el.__src = src.url; el.src = src.url; }
+  if (!src && el.__src) { el.__src = null; el.removeAttribute('src'); try { el.load(); } catch (e) {} }
+  setProp('vid', 'hidden', !src || vid.err);
+  el.muted = vid.url ? vid.muted : true;
+  if (play && !document.hidden) { if (el.paused) { var pr = el.play(); if (pr && pr.catch) pr.catch(function () {}); } }
+  else if (!el.paused) el.pause();
+  // on-screen time: counted only while it plays in a visible window
+  var now = Date.now();
+  if (vid.lastTick && play && !document.hidden && !el.paused) vid.visibleMs += now - vid.lastTick;
+  vid.lastTick = now;
+  if (sess && src && (now - vid.sentAt > 30000 || vid.src !== src.source || (v.stage === 'done' && vid.sentMs !== vid.visibleMs))) {
+    vid.sentAt = now; vid.src = src.source; vid.sentMs = vid.visibleMs;
+    api('/api/video', 'POST', { source: src.source, visibleMs: Math.round(vid.visibleMs) }).catch(function () {});
+  }
+}
+$('vidOpenBtn').onclick = function () { $('fileIn').click(); };
+$('fileIn').onchange = function () {
+  var f = $('fileIn').files && $('fileIn').files[0];
+  if (!f) return;
+  if (vid.url) URL.revokeObjectURL(vid.url);
+  vid.url = URL.createObjectURL(f); vid.name = f.name; vid.err = false; vid.muted = true;
+  if (st.snap) render(st.snap);
+};
+$('muteBtn').onclick = function () { vid.muted = !vid.muted; $('vid').muted = vid.muted; setText('muteBtn', vid.muted ? 'Unmute' : 'Mute'); };
+$('vid').addEventListener('error', function () { if ($('vid').__src && !vid.err) { vid.err = true; if (st.snap) render(st.snap); } });
 $('cancelBtn').onclick = function () { command('/api/cancel', null, 'preMsg'); };
 $('newBtn').onclick = function () { command('/api/new', null, 'doneMsg'); };
 $('openBtn').onclick = function () { command('/api/open-report', null, 'doneMsg'); };

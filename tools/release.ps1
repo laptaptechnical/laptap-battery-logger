@@ -11,7 +11,8 @@ param(
     [switch]$TestHooks,
     [switch]$NoGit,
     [int]$Release = 0,
-    [string]$OutDir
+    [string]$OutDir,
+    [switch]$NoVideo     # v16 (M7): allow a release with no packaged video (never for the fleet)
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -44,6 +45,17 @@ $dir = if ($OutDir) { $OutDir } else { Join-Path $repo "release\v$Version" }
 if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
+# ---- v16 (M7): the packaged video is embedded by build.ps1; say which, and refuse a release without one ----
+$video = $null
+foreach ($v in @('assets\video\loop.webm', 'assets\video\loop.mp4')) { $p = Join-Path $repo $v; if (Test-Path -LiteralPath $p) { $video = $p; break } }
+if (-not $video -and -not $NoVideo) { throw 'No packaged video (assets\video\loop.webm). Make it with tools\prepare-video.ps1, or pass -NoVideo.' }
+if ($video) {
+    $dur = 'n/a (ffprobe not found)'
+    $fp = Get-Command ffprobe -ErrorAction SilentlyContinue
+    if ($fp) { $d = & $fp.Source -v error -show_entries format=duration -of default=nw=1:nk=1 "$video" 2>$null; if ($d) { $dur = ($d | Select-Object -First 1).Trim() + ' s' } }
+    Write-Host ('video: ' + (Split-Path -Leaf $video) + ', ' + (Get-Item -LiteralPath $video).Length + ' bytes, sha256 ' + (Get-FileHash -LiteralPath $video -Algorithm SHA256).Hash.ToLowerInvariant() + ', ' + $dur)
+} else { Write-Host 'video: none (-NoVideo)' }
+
 # ---- 3. build + test ----
 $build = Join-Path $dir 'build'
 $bargs = @{ Out = $build; Version = $Version; Release = $rel }
@@ -58,8 +70,8 @@ if (-not $NoGit) {
     $raw = [IO.File]::ReadAllBytes($asset)
     $latin = [Text.Encoding]::GetEncoding(28591).GetString($raw)
     $utf16 = [Text.Encoding]::Unicode.GetString($raw) + [Text.Encoding]::Unicode.GetString($raw, 1, $raw.Length - 1)
-    foreach ($needle in @('LAPTAP_BL_TEST_BASE', 'LAPTAP_BL_TEST_PUBKEYS', 'LAPTAP_BL_TEST_NS', '/api/start')) {
-        if ($latin.Contains($needle) -or $utf16.Contains($needle)) { throw "The release exe contains test-hook text ($needle). Nothing was signed." }
+    foreach ($needle in @('LAPTAP_BL_TEST_BASE', 'LAPTAP_BL_TEST_PUBKEYS', 'LAPTAP_BL_TEST_NS', '/api/start(?!-anyway)')) {   # v16: /api/start-anyway is a real route
+        if ([regex]::IsMatch($latin, $needle) -or [regex]::IsMatch($utf16, $needle)) { throw "The release exe contains test-hook text ($needle). Nothing was signed." }
     }
 }
 # U1: the new exe must start its engine, server and page (a broken release would strand every laptop).

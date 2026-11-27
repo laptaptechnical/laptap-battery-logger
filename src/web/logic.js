@@ -22,8 +22,9 @@
   function canStart(pct) { return pct != null && pct >= 96; }
 
   // Segments from an event list. Opening events start the clock, closing events stop it (C2).
-  var OPEN = { unplugged: 1, charger_out: 1, gap_end: 1 };
-  var CLOSE = { charger_in: 1, gap: 1, alarm: 1, stop: 1, end: 1, hibernated: 1 };
+  // v16 §7 (I4): the same sets as Rules.Segments (C#); an open/close event while already open/closed is a no-op.
+  var OPEN = { unplugged: 1, charger_out: 1, gap_end: 1, resume: 1, wake: 1 };
+  var CLOSE = { charger_in: 1, gap: 1, pause: 1, sleep: 1, alarm: 1, stop: 1, end: 1, hibernated: 1, battery_ran_out: 1 };
   function segments(events) {
     var out = [], cur = null;
     for (var i = 0; i < events.length; i++) {
@@ -295,6 +296,61 @@
     return st !== 'countdown' && !testOnScreen(st);
   }
 
+  // ---------------- v16 ----------------
+  // §2: the inline confirm.
+  function startAnywayQuestion(pct) { return 'Start at ' + (pct == null ? '?' : pct) + '%?'; }
+
+  // §3/§4: the band while running. pauseReasons' first entry names the pause; a manual pause with the charger in
+  // can't resume (D4). After a sleep, the green band says "resumed".
+  var WHY = { manual: 'by you', charger: 'charger plugged in', sleep: 'laptop asleep' };
+  function bandView151(sess, now, events) {
+    sess = sess || {}; now = now || {};
+    var reasons = sess.pauseReasons || (sess.status === 'paused' ? ['charger'] : []);
+    var o = { why: null, sub: '', resume: false, resumeOff: false, manual: null };
+    if (sess.manualStart) o.manual = 'Manual start at ' + sess.manualStart.pct + '% (below 96%)';
+    if (sess.status === 'paused') {
+      var first = reasons[0] || 'charger';
+      o.why = WHY[first];
+      if (first === 'manual') {
+        o.resume = true;
+        if (now.ac || reasons.indexOf('charger') >= 0) { o.resumeOff = true; o.sub = 'Charger plugged in. Unplug to resume.'; }
+        else o.sub = 'Paused by you.';
+      } else if (first === 'sleep') o.sub = 'Laptop going to sleep. Logging resumes when it wakes.';
+      else o.sub = 'Charger plugged in. Unplug to continue.';
+      return o;
+    }
+    var last = null;
+    (events || []).forEach(function (e) { if (e.type === 'wake' || e.type === 'pause' || e.type === 'charger_in' || e.type === 'resume' || e.type === 'charger_out') last = e; });
+    if (last && last.type === 'wake') {
+      o.why = 'resumed';
+      var g = sess.sleepMs || 0;
+      o.sub = 'Resumed after sleep. ' + fmtElapsed(g / 1000) + ' asleep, not counted.';
+    } else o.sub = 'Leave the charger unplugged. The test ends by itself at ' + sess.alarmPct + '%.';
+    return o;
+  }
+
+  // §5: one row per battery: "Battery 1  86%  21.4 Wh  −6.2 W  discharging".
+  function batteryRows(bats) {
+    return (bats || []).map(function (b, i) {
+      var h = health(b.fullMwh, b.designMwh).shown;
+      var w = b.rateMw == null ? null : (b.state === 'charging' ? 1 : -1) * b.rateMw / 1000;
+      return { name: 'Battery ' + (i + 1), health: h == null ? 'n/a' : Math.round(h) + '%',
+        wh: b.nowMwh == null ? 'n/a' : (b.nowMwh / 1000).toFixed(1) + ' Wh',
+        power: w == null ? 'n/a' : (w > 0 ? '+' : w < 0 ? '−' : '') + Math.abs(w).toFixed(1) + ' W', w: w,
+        state: b.state || null, cycles: b.cycles == null ? 'n/a' : String(b.cycles) };
+    });
+  }
+
+  // §6: the packaged / chosen video plays only while LOGGING (paused with any pause, gone at Done).
+  function videoShouldPlay(stage) { return stage === 'logging'; }
+  function videoFact(v) {
+    if (!v || !v.source) return { v: 'None', s: 'no video played' };
+    return { v: v.source === 'packaged' ? 'Packaged loop' : v.source, s: v.onScreenPct == null ? 'played while logging' : 'on screen ' + v.onScreenPct + '% of the test' };
+  }
+
+  // D7: "Windows hibernated at 4% after 3:12 (counted time)".
+  function ranOutLine(pct, sec) { return 'Windows hibernated at ' + (pct == null ? 'n/a' : pct + '%') + ' after ' + fmtHm(sec) + ' (counted time)'; }
+
   // v15.2.1: the automatic restart runs only when an update is ready and the logger is idle (same rule as Restart now).
   function autoRestart(s) {
     var u = s && s.app && s.app.update;
@@ -328,7 +384,9 @@
     endReason: endReason, powerState: powerState, bandView: bandView, mergeRows: mergeRows, capRows: capRows,
     stageView: stageView, testOnScreen: testOnScreen, modalView: modalView, chipView: chipView,
     countdownDigit: countdownDigit, countdownWords: countdownWords, canRestart: canRestart,
-    autoRestart: autoRestart, autoRestartWords: autoRestartWords, heartbeatEvery: heartbeatEvery,
+    autoRestart: autoRestart, autoRestartWords: autoRestartWords,
+    startAnywayQuestion: startAnywayQuestion, bandView151: bandView151, batteryRows: batteryRows, videoShouldPlay: videoShouldPlay,
+    videoFact: videoFact, ranOutLine: ranOutLine, heartbeatEvery: heartbeatEvery,
     fmtHMin: fmtHMin, ACTIVE_UPDATE: ACTIVE_UPDATE
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

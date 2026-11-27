@@ -50,6 +50,7 @@ static class HelperTests
             AuditFixes(File.ReadAllText(index));
             V15Tests.Run(delegate(bool c, string w) { Ok(c, w); }, delegate(object a, object b, string w) { Eq(a, b, w); }, delegate(string n) { Section(n); }, exe);
             V151Tests.Run(delegate(bool c, string w) { Ok(c, w); }, delegate(object a, object b, string w) { Eq(a, b, w); }, delegate(string n) { Section(n); });
+            V16Tests.Run(delegate(bool c, string w) { Ok(c, w); }, delegate(object a, object b, string w) { Eq(a, b, w); }, delegate(string n) { Section(n); });
             CsvRoundTrip();
             Parsers();
             PeFlags(exe);
@@ -268,14 +269,16 @@ static class HelperTests
         en.Publish();
         Dictionary<string, object> s = Server.Filter(en.Snapshot, 0);
         HasKeys(s, "state", "rev", "version", "nowMs", "checks", "armed", "countdownEndsMs", "nextStep", "app", "live", "unit", "batteries", "now", "session", "samples", "events", "result");
-        HasKeys(s["app"], "app", "version", "release", "updatedFrom", "updateNote", "update");
+        HasKeys(s["app"], "app", "version", "release", "updatedFrom", "updateNote", "update", "media");
+        HasKeys(((Dictionary<string, object>)s["app"])["media"], "app.media", "packaged", "sizeBytes");
+        HasKeys(s["checks"], "checks", "battery", "pct96", "unplugged", "chargeLimitHint", "startAnyway", "alarmPct");
         HasKeys(((Dictionary<string, object>)s["app"])["update"], "app.update", "phase", "version", "bytes", "total", "percent", "note");
         HasKeys(s["live"], "live", "avgW", "etaToAlarmS", "healthPct");
         Eq(AppVersion.Version, s["version"], "version");
         HasKeys(s["unit"], "unit", "maker", "model", "serial", "computerName");
-        foreach (object b in (IList)s["batteries"]) HasKeys(b, "batteries[]", "id", "maker", "chemistry", "designMwh", "fullMwh", "fullEndMwh", "cycles");
+        foreach (object b in (IList)s["batteries"]) HasKeys(b, "batteries[]", "id", "maker", "chemistry", "designMwh", "fullMwh", "fullEndMwh", "cycles", "nowMwh", "rateMw", "state", "voltageMv");
         HasKeys(s["now"], "now", "pct", "mwh", "fullMwh", "rateMw", "ac", "charging", "saver");
-        HasKeys(s["session"], "session", "id", "status", "startedMs", "alarmPct", "alarmPctMax", "alarm", "alarmAck", "segments", "pausedSinceMs");
+        HasKeys(s["session"], "session", "id", "status", "startedMs", "alarmPct", "alarmPctMax", "alarm", "alarmAck", "segments", "pausedSinceMs", "pauseReasons", "manualStart", "sleepMs");
         foreach (object g in (IList)((Dictionary<string, object>)s["session"])["segments"]) HasKeys(g, "segments[]", "startMs", "endMs", "startPct", "endPct", "startMwh", "endMwh");
         foreach (object x in (IList)s["samples"]) HasKeys(x, "samples[]", "rev", "ms", "elapsedS", "pct", "mwh", "fullMwh", "rateMw", "rateSrc", "voltageMv", "ac", "saver");
         Ok(((IList)s["events"]).Count == 0, "no events in the fake engine's published list (added directly)");
@@ -283,7 +286,7 @@ static class HelperTests
         HasKeys(Engine.EventDict(e), "events[]", "rev", "ms", "elapsedS", "type", "pct", "mwh", "rateMw", "note", "fromMs", "toMs");
         HasKeys(s["result"], "result", "kind", "reason", "startEnd", "alarmAck", "runtimeS", "startPct", "endPct", "estFullS", "estFullEnergyS",
             "avgW", "minW", "maxW", "healthPct", "fullChangedMwh", "gapCount", "gapS", "pauseCount", "pauseS", "saver", "brightnessStart",
-            "brightnessEnd", "plan", "windows", "files");
+            "brightnessEnd", "plan", "windows", "files", "manualStart", "manualNote", "sleepCount", "sleepS", "video", "videoText", "estFullText");
         Dictionary<string, object> r = (Dictionary<string, object>)s["result"];
         HasKeys(r["files"], "result.files", "html", "csv");
         Eq("Stopped early", r["reason"], "result.reason"); Eq("98% → 60%", r["startEnd"], "result.startEnd");

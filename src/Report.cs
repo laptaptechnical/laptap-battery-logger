@@ -61,7 +61,54 @@ public static class Report
         d["plan"] = si.PowerPlan; d["windows"] = si.Windows;
         Dictionary<string, object> files = new Dictionary<string, object>(); files["html"] = S.ReportPath; files["csv"] = S.CsvPath;
         d["files"] = files;
+        // ---- v16 ----
+        if (S.ManualStart != null) { Dictionary<string, object> m = new Dictionary<string, object>(); m["pct"] = S.ManualStart.Pct; m["ms"] = S.ManualStart.Ms; d["manualStart"] = m; }
+        else d["manualStart"] = null;
+        d["manualNote"] = ManualNote(S);
+        d["sleepCount"] = S.Gaps.Count; d["sleepS"] = Math.Round(gapS);
+        d["video"] = VideoDict(S, run);
+        d["videoText"] = VideoText(S, run);
+        d["estFullText"] = EstFullText(S, d["estFullS"]);
         return d;
+    }
+
+    // v16 §2: "Manual start at 82% (below 96%)" or "".
+    public static string ManualNote(SessionData S)
+    {
+        return S.ManualStart == null ? "" : "Manual start at " + P(S.ManualStart.Pct) + " (below 96%)";
+    }
+
+    // M6: a short (manual) run can't estimate 100→0%.
+    public static string EstFullText(SessionData S, object estS)
+    {
+        if (estS != null) return Rules.FmtHm(Convert.ToDouble(estS, Inv));
+        return Rules.CountedDrop(S.Segments) < 10 ? "n/a (too short to estimate)" : "n/a";
+    }
+
+    // v16 §6 (D10): which video played and how long it was on screen, against the counted time.
+    public static Dictionary<string, object> VideoDict(SessionData S, double runS)
+    {
+        if (string.IsNullOrEmpty(S.VideoSource)) return null;
+        Dictionary<string, object> v = new Dictionary<string, object>();
+        v["source"] = S.VideoSource; v["visibleMs"] = S.VideoVisibleMs;
+        v["onScreenPct"] = runS > 0 ? (object)Math.Min(100, Math.Round(S.VideoVisibleMs / 10.0 / runS)) : null;
+        return v;
+    }
+    public static string VideoText(SessionData S, double runS)
+    {
+        if (string.IsNullOrEmpty(S.VideoSource)) return "Video: none";
+        string name = S.VideoSource == "packaged" ? "packaged loop" : S.VideoSource;
+        string pct = runS > 0 ? " · on screen " + Math.Min(100, Math.Round(S.VideoVisibleMs / 10.0 / runS)).ToString(Inv) + "% of the test" : "";
+        return "Video: " + name + pct;
+    }
+
+    // v16 §1 (M2): the real logo inlined in the Desktop report (the page uses /brand/logo.svg).
+    public static byte[] LogoSvg;
+    public static string LogoImgHtml()
+    {
+        byte[] b = LogoSvg ?? Program.ResourceBytes("brand/logo.svg");
+        if (b == null || b.Length == 0) return "";
+        return "<img class=\"logo\" alt=\"Laptap\" src=\"data:image/svg+xml;base64," + Convert.ToBase64String(b) + "\">";
     }
 
     static double? EndFullTotal(SessionData S)
@@ -83,7 +130,8 @@ public static class Report
     // The report template slots (api-contract.md "Report template").
     public static readonly string[] Slots = { "unitModel", "unitSerial", "computerName", "date", "startTime", "endTime", "reason", "startEnd",
         "runtime", "estFull", "estFullEnergy", "avgW", "minW", "maxW", "healthPct", "batteryRowsHtml", "gapsPauses", "saver", "brightness",
-        "plan", "windows", "alarmNote", "chartSvgHtml", "eventRowsHtml", "eventsMore", "version" };
+        "plan", "windows", "alarmNote", "chartSvgHtml", "eventRowsHtml", "eventsMore", "version",
+        "logoHtml", "manualNote", "video" };   // v16
 
     static string Hm(object sec) { return sec == null ? "n/a" : Rules.FmtHm(Convert.ToDouble(sec, Inv)); }
 
@@ -102,7 +150,8 @@ public static class Report
         d["endTime"] = end.ToString("HH:mm", Inv);
         d["reason"] = r["reason"]; d["startEnd"] = r["startEnd"];
         d["runtime"] = Hm(r["runtimeS"]);
-        d["estFull"] = Hm(r["estFullS"]); d["estFullEnergy"] = Hm(r["estFullEnergyS"]);
+        d["estFull"] = r["estFullText"]; d["estFullEnergy"] = Hm(r["estFullEnergyS"]);
+        d["logoHtml"] = LogoImgHtml(); d["manualNote"] = r["manualNote"]; d["video"] = r["videoText"];
         d["avgW"] = W(S.Segments.Count > 0 ? Rules.AvgW(S.Segments) : null); d["minW"] = W(S.MinW); d["maxW"] = W(S.MaxW);
         double?[] h = Rules.Health(si.TotalFull(), si.TotalDesign());
         d["healthPct"] = h[1].HasValue ? h[1].Value.ToString("0.0", Inv) + "%" : "n/a";   // shown value: min(100, raw)
@@ -114,9 +163,11 @@ public static class Report
             BatteryInfo b = si.Batteries[i];
             double?[] bh = b.Relative ? new double?[] { null, null } : Rules.Health(b.FullMwh, b.DesignMwh);
             string fullTxt = b.Relative ? "n/a" : Wh(b.FullMwh);
-            double? e = ends.Count == si.Batteries.Count ? ends[i] : null;
+            double? e = null, ebi;
+            if (S.EndFull != null && b.Id != null && S.EndFull.TryGetValue(b.Id, out ebi)) e = ebi;   // v16: by InstanceName
+            else if (ends.Count == si.Batteries.Count) e = ends[i];
             if (!b.Relative && e.HasValue && b.FullMwh.HasValue && Math.Abs(e.Value - b.FullMwh.Value) > b.FullMwh.Value * 0.005) fullTxt += " → " + Wh(e);
-            bat.Append("<tr><td>").Append(Rules.EscapeHtml(b.Id)).Append("</td><td>").Append(Rules.EscapeHtml(b.Manufacturer))
+            bat.Append("<tr><td title=\"").Append(Rules.EscapeHtml(b.Id)).Append("\">Battery ").Append(i + 1).Append("</td><td>").Append(Rules.EscapeHtml(b.Manufacturer))
                .Append("</td><td>").Append(Rules.EscapeHtml(b.Chemistry)).Append("</td><td class=\"n\">").Append(b.Relative ? "n/a" : Wh(b.DesignMwh))
                .Append("</td><td class=\"n\">").Append(fullTxt).Append("</td><td class=\"n\">").Append(b.Cycles.HasValue ? Rules.Num(b.Cycles.Value) : "n/a")
                .Append("</td><td class=\"n\">").Append(bh[1].HasValue ? bh[1].Value.ToString("0.0", Inv) + "%" : "n/a").Append("</td></tr>");
@@ -145,7 +196,7 @@ public static class Report
         return d;
     }
 
-    // "1 gap · 0:30 (slept) · 1 pause · 1:00" or "None".
+    // v16 §4: "1 sleep pause · 0:30 (slept) · 2 pauses · 1:00" or "None" (sleep pauses were "gaps" before v16).
     public static string GapsPauses(SessionData S)
     {
         List<string> parts = new List<string>();
@@ -153,7 +204,7 @@ public static class Report
         {
             double gs = 0; List<string> why = new List<string>();
             foreach (GapInfo g in S.Gaps) { gs += (g.ToMs - g.FromMs) / 1000.0; if (!why.Contains(g.Reason)) why.Add(g.Reason); }
-            parts.Add(S.Gaps.Count + (S.Gaps.Count == 1 ? " gap" : " gaps"));
+            parts.Add(S.Gaps.Count + (S.Gaps.Count == 1 ? " sleep pause" : " sleep pauses"));
             parts.Add(Rules.FmtHm(gs) + " (" + string.Join(", ", why.ToArray()) + ")");
         }
         if (S.Pauses.Count > 0)
@@ -210,8 +261,27 @@ public static class Report
         }
         if (pl.Length > 0)
         {
-            g.AppendFormat(Inv, "<path d=\"M{0:0.#},{1:0.#} L{2} L{3:0.#},{1:0.#} Z\" fill=\"#0070d2\" opacity=\".08\"/>", firstX, y(0), pl.ToString().Trim().Replace(" ", " L"), lastX);
-            g.Append("<polyline fill=\"none\" stroke=\"#0070d2\" stroke-width=\"2\" points=\"").Append(pl.ToString().Trim()).Append("\"/>");
+            g.AppendFormat(Inv, "<path d=\"M{0:0.#},{1:0.#} L{2} L{3:0.#},{1:0.#} Z\" fill=\"#053299\" opacity=\".08\"/>", firstX, y(0), pl.ToString().Trim().Replace(" ", " L"), lastX);
+            g.Append("<polyline fill=\"none\" stroke=\"#053299\" stroke-width=\"2\" points=\"").Append(pl.ToString().Trim()).Append("\"/>");
+        }
+        // v16 §5: a thin line per battery (its own remaining ÷ its full), when there is more than one.
+        if (S.StartInfo != null && S.StartInfo.Batteries.Count > 1)
+        {
+            string[] cols = { "#4a6fd1", "#8a8f99", "#2e844a", "#7a4fd1" };
+            for (int bi = 0; bi < S.StartInfo.Batteries.Count && bi < 4; bi++)
+            {
+                BatteryInfo bt = S.StartInfo.Batteries[bi];
+                if (!bt.FullMwh.HasValue || bt.FullMwh.Value <= 100) continue;
+                StringBuilder bl = new StringBuilder();
+                foreach (Sample s in samples)
+                {
+                    if (s.Ms < t0 || s.Per == null) continue;
+                    foreach (BatLive p in s.Per)
+                        if ((p.Id == bt.Id || p.Id == "b" + (bi + 1)) && p.Mwh.HasValue)
+                            bl.AppendFormat(Inv, "{0:0.#},{1:0.#} ", x((s.Ms - t0) / 1000.0), y(Math.Min(100, p.Mwh.Value * 100 / bt.FullMwh.Value)));
+                }
+                if (bl.Length > 0) g.Append("<polyline fill=\"none\" stroke=\"").Append(cols[bi]).Append("\" stroke-width=\"1\" stroke-dasharray=\"3 2\" points=\"").Append(bl.ToString().Trim()).Append("\"/>");
+            }
         }
         if (wl.Length > 0) g.Append("<polyline fill=\"none\" stroke=\"#b86e00\" stroke-width=\"1.2\" points=\"").Append(wl.ToString().Trim()).Append("\"/>");
         g.Append("</svg>");
