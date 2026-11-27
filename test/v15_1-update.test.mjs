@@ -106,17 +106,19 @@ test('Restart now (idle) → POST /api/update-restart → "Restarting…" with t
   });
 });
 
-test('not idle: Done with an unacknowledged alarm → no modal countdown, no restart; after OK the 3 s auto restart runs', () => {
+test('not idle: active alarm → no restart; acknowledge and manually stop before auto restart', () => {
   const exe = new FakeExe151({ pct: 100, ac: true });
   return withExe(exe, {}, async (L) => {
     await toLogging(L, exe);
     exe.at += MIN; exe.drain(15); exe.end('alarm'); exe.setUpdate('ready'); await L.step(5000);
-    assert.ok(!(await L.page.isVisible(SEL.restart)), 'hidden while the alarm is unacknowledged');
+    assert.ok(!(await L.page.isVisible(SEL.restart)), 'hidden while logging is active');
     assert.equal(exe.count('/api/update-restart', 'POST'), 0, 'no restart while not idle');
-    await L.click(SEL.alarmOk); await L.step(1000);
-    assert.ok(await L.page.isVisible(SEL.restart), 'shown once idle (Done, alarm acknowledged)');
+    await L.click(SEL.alarmOk); await L.step(500);
+    assert.ok(!(await L.page.isVisible(SEL.restart)), 'acknowledging the warning does not stop logging');
+    await L.click(SEL.stop); await L.click(SEL.stopYes); await L.step(1000);
+    assert.ok(await L.page.isVisible(SEL.restart), 'shown after manually stopping the test');
     await L.step(4000);
-    assert.equal(exe.count('/api/update-restart', 'POST'), 1, 'auto restart after the alarm OK');
+    assert.equal(exe.count('/api/update-restart', 'POST'), 1, 'auto restart after manual stop');
   });
 });
 

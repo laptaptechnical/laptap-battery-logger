@@ -59,9 +59,11 @@ test('no auto restart during a test or a countdown; the chip shows; it runs afte
     assert.equal(restarts(exe), 0, 'never during the countdown or the test');
     assert.match(await L.page.locator(SEL.chip).innerText(), /installs after this test/);
     exe.at += MIN; exe.drain(15); exe.end('alarm'); await L.step(5000);
-    assert.doesNotMatch(await overlay(L), /Update complete/, 'not while the alarm is unacknowledged');
+    assert.doesNotMatch(await overlay(L), /Update complete/, 'not while logging is active');
     await L.step(5000); assert.equal(restarts(exe), 0);
     await L.click(SEL.alarmOk); await L.step(1000, 250);
+    assert.doesNotMatch(await overlay(L), /Update complete/, 'acknowledging the alarm does not stop logging');
+    await L.click(SEL.stop); await L.click(SEL.stopYes); await L.step(1000, 250);
     assert.match(await overlay(L), /Update complete\.\.\./, 'Done + alarm OK → the countdown');
     await L.run(3500);
     assert.equal(restarts(exe), 1, 'then the restart');

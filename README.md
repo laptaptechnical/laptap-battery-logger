@@ -10,6 +10,8 @@ an HTML report and a CSV to the Desktop when the test ends.
 - **Start:** no Start button in the normal flow. A checklist (battery found · charged to 96% or more · charger
   unplugged), then "All conditions are met, starting logging in 3.. 2.. 1..", then a big LOGGING band.
 - **Live log:** every reading and event appears the moment it's taken, newest first, and the whole test can be scrolled.
+- **Battery alarm:** choose an alarm level from 1% up to the current battery level. It alerts and recommends plugging in
+  the charger, but logging continues until you manually stop the test.
 - **Export and media:** export the log as CSV or PDF (choose **Save as PDF** in the print dialog); play looping video
   from the bundled clip or a file on the computer, with mute/unmute controls.
 - **Safer closing:** closing the logger asks for confirmation to help prevent accidentally ending the app.

@@ -325,7 +325,7 @@
       o.why = 'resumed';
       var g = sess.sleepMs || 0;
       o.sub = 'Resumed after sleep. ' + fmtElapsed(g / 1000) + ' asleep, not counted.';
-    } else o.sub = 'Leave the charger unplugged. The test ends by itself at ' + sess.alarmPct + '%.';
+    } else o.sub = 'Alarm at ' + sess.alarmPct + '%. Plug in soon (recommended); logging continues until you stop it.';
     return o;
   }
 

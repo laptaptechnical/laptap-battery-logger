@@ -21,7 +21,7 @@ const STATES = {
     e.gap(20); for (let i = 0; i < 20; i++) { e.at += MIN; e.drain(e.pct - 1); }
   },
   paused: (e) => { STATES.logging(e); e.at += MIN; e.plug(); },
-  done: (e) => { STATES.logging(e); e.at += MIN; e.drain(15); e.end('alarm'); e.S.alarmAck = true; e.result.alarmAck = true; },
+  done: (e) => { STATES.logging(e); e.at += MIN; e.drain(15); e.end('stop'); e.S.alarmAck = true; e.result.alarmAck = true; },
 };
 
 const b = await browser();

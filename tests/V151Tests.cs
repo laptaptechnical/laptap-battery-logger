@@ -176,17 +176,19 @@ static class V151Tests
         Eq(false, en.Command("update-restart", null)["ok"], "refused while Paused");
         hw.Ac = false; Step(en, hw, poll, 1000);
         ToAlarm(en, hw, poll);
-        Ok(en.S.Status == "done" && en.S.Alarm && !en.S.AlarmAck, "Done with an unacknowledged alarm");
+        Ok(en.S.Status == "running" && en.S.Alarm && !en.S.AlarmAck, "alarm is active without ending logging");
         Eq(false, en.Command("update-restart", null)["ok"], "refused until the alarm is acknowledged");
         Eq(0, spawned, "nothing spawned by any refusal");
         Ok(!en.QuitAtMs.HasValue, "still running");
         en.Command("ack-alarm", null);
+        Eq(false, en.Command("update-restart", null)["ok"], "still refused while logging after acknowledging the alarm");
+        en.Command("stop", null);
         string sd = Path.Combine(Path.Combine(Engine.BaseDir, "sessions"), "other"); Directory.CreateDirectory(sd);
         File.WriteAllText(Path.Combine(sd, "session.json"), "{\"Status\":\"running\"}");
         Eq(false, en.Command("update-restart", null)["ok"], "refused while another session on disk isn't done");
         Directory.Delete(sd, true);
         r = en.Command("update-restart", null);
-        Eq(true, r["ok"], "accepted in Done with the alarm acknowledged");
+        Eq(true, r["ok"], "accepted in Done after manually stopping and acknowledging the alarm");
         Eq(1, spawned, "--after-exit <pid> started before the answer");
         Eq(true, en.Command("update-restart", null)["ok"], "a second Restart now answers ok (build-audit M1)");
         Eq(1, spawned, "… and spawns nothing more");
@@ -299,7 +301,7 @@ static class V151Tests
         h5.T += 10000; Ok(!e5.ShouldExit(), "a state poll counts as contact");
         h5.T += 6000; Ok(e5.ShouldExit(), "then 15 s of silence → exits");
 
-        // never during a test, nor within the unacknowledged-alarm window
+        // never during a test, nor within the unacknowledged-alarm window after manual stop
         FakeHw h6 = new FakeHw(); h6.T = Rules.NowMs(); long[] p6 = { h6.T };
         Engine e6 = NewEngine(h6, p6);
         StartTest(e6, h6, p6);
@@ -309,7 +311,8 @@ static class V151Tests
         h6.Ac = true; Step(e6, h6, p6, 1000); t6 = h6.T; h6.T += 10 * 60000;
         Ok(e6.S.Status == "paused" && !e6.ShouldExit(), "never while Paused"); h6.T = t6;
         h6.Ac = false; Step(e6, h6, p6, 1000); ToAlarm(e6, h6, p6);
-        Ok(e6.S.Alarm && !e6.S.AlarmAck, "alarm not acknowledged");
+        Ok(e6.S.Status == "running" && e6.S.Alarm && !e6.S.AlarmAck, "alarm did not end logging");
+        e6.Command("stop", null);
         h6.T += 20 * 60000; Ok(!e6.ShouldExit(), "never within the unacknowledged-alarm window (31 min)");
         h6.T += 12 * 60000; Ok(e6.ShouldExit(), "after it, the quiet rule applies");
 

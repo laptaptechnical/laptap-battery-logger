@@ -52,19 +52,21 @@ class FakeExe {
     else if (S.status === 'paused') { S.status = 'running'; S.pauses[S.pauses.length - 1].toMs = this.at; this.open(); this.ev('charger_out'); }
   }
   plug() { this.now.ac = true; this.now.rateMw = null; const S = this.S; if (S && S.status === 'running') { this.close(); S.status = 'paused'; S.pauses.push({ fromMs: this.at, toMs: null }); this.ev('charger_in'); } }
-  drain(pct) { this.now.pct = pct; this.now.mwh = Math.round(47378 * pct / 100); this.sample(); }
+  drain(pct) { this.now.pct = pct; this.now.mwh = Math.round(47378 * pct / 100); this.sample(); if (this.S && this.S.status === 'running' && !this.now.ac && pct <= this.alarmPct) this.triggerAlarm(); }
   gap(mins, reason = 'slept') { const from = this.at; this.close(); this.at += mins * MIN; this.S.gaps.push({ fromMs: from, toMs: this.at, reason }); this.ev('gap', `Gap ${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')} · laptop ${reason}`); this.open(); }
   end(kind) {
-    const S = this.S; this.close(); S.status = 'done'; S.alarm = kind === 'alarm';
-    this.ev(kind, kind === 'alarm' ? `Alarm at ${this.now.pct}%` : LABELS.stop);
+    if (kind === 'alarm') { this.triggerAlarm(); return; }
+    const S = this.S; this.close(); S.status = 'done';
+    this.ev('stop', LABELS.stop);
     const run = this.elapsed();
-    this.result = { kind, text: kind === 'alarm' ? 'Ended at alarm' : 'Stopped early', startPct: S.startPct, endPct: this.now.pct, runtimeS: run,
+    this.result = { kind, text: 'Stopped early', startPct: S.startPct, endPct: this.now.pct, runtimeS: run,
       runtime: `${Math.floor(run / 3600)}:${String(Math.floor(run % 3600 / 60)).padStart(2, '0')} (${S.startPct}% → ${this.now.pct}%)`,
       estFull: 'n/a', estEnergy: 'n/a', avgW: '9.5 W', minMaxW: '8.0 / 11.0 W', health: '91.9%', healthRaw: 91.9, capacity: '47.4 / 51.5 Wh', cycles: 'n/a',
       gaps: 'None', pauses: 'None', saver: 'off', brightness: '60% → 60%', plan: 'Balanced', windows: 'Windows 11', alarm: S.alarm, alarmAck: false,
       reportPath: 'C:\\Users\\tech\\Desktop\\Battery 5CB4190FVX 2026-11-26 0900.html', csvPath: 'C:\\Users\\tech\\Desktop\\Battery 5CB4190FVX 2026-11-26 0900.csv' };
     this.ev('report');
   }
+  triggerAlarm() { if (this.S && !this.S.alarm) { this.S.alarm = true; this.S.alarmAck = false; this.ev('alarm', `Alarm at ${this.now.pct}%`); } }
   state(since) {
     const S = this.S;
     return { rev: this.rev, version: '14.0', alarmPct: this.alarmPct, qa: false, unit: this.unit,
@@ -85,7 +87,7 @@ class FakeExe {
       unit: { maker: this.unit.manufacturer, model: this.unit.model, serial: this.unit.serial, computerName: 'LAPTOP-1234' },
       batteries: this.batteries.map(b => ({ fullEndMwh: null, ...b })), now: { ...this.now },
       session: ready ? null : { id: S.id, status: S.status, startedMs: S.startedMs,
-        alarmPct: this.alarmPct, alarmPctMax: 50, alarm: S.alarm, alarmAck: S.alarmAck, segments: segs },
+        alarmPct: this.alarmPct, alarmPctMax: Math.floor(this.now.pct == null ? 100 : this.now.pct), alarm: S.alarm, alarmAck: S.alarmAck, segments: segs },
       samples: !ready ? this.samples.filter(x => x.rev > since).map(x => ({ rev: x.rev, ms: x.ms, elapsedS: x.e, pct: x.pct, mwh: x.mwh, fullMwh: 47378,
         rateMw: x.rateMw, rateSrc: 'wmi', voltageMv: 12000, ac: x.ac, saver: false })) : [],
       events: !ready ? this.events.filter(x => x.rev > since && x.type !== 'waiting').map(e => {
@@ -110,7 +112,7 @@ class FakeExe {
     }
     if (p === '/api/stop') { if (!this.S || this.S.status === 'done') return { ok: false, error: 'No test is running.' }; this.end('stop'); return { ok: true }; }
     if (p === '/api/ack-alarm') { if (this.S) this.S.alarmAck = true; if (this.result) this.result.alarmAck = true; return { ok: true }; }
-    if (p === '/api/alarm-pct') { if (!(body.pct >= 10 && body.pct <= 50)) return { ok: false, error: 'Alarm must be 10 to 50%.' }; this.alarmPct = body.pct; return { ok: true }; }
+    if (p === '/api/alarm-pct') { if (!(body.pct >= 1 && body.pct <= (this.now.pct == null ? 100 : this.now.pct))) return { ok: false, error: 'Alarm must be from 1% up to the current battery level.' }; this.alarmPct = body.pct; return { ok: true }; }
     if (p === '/api/save-csv') return this.S ? { ok: true, file: 'C:\\Users\\tech\\Desktop\\x.csv',path: 'C:\\Users\\tech\\Desktop\\x.csv' } : { ok: false, error: 'No test yet.' };
     if (p === '/api/heartbeat') return { ok: true };
     if (p === '/api/new') { if (!this.S || this.S.status !== 'done') return { ok: false, error: 'No finished test is showing.' }; this.S = null; this.samples = []; this.events = []; this.result = null; return { ok: true }; }
@@ -320,13 +322,14 @@ test('bug 6a: one AudioContext, made when the alarm shows (the exe starts Edge w
   exe.drain(15); exe.end('alarm'); await L.step(6000);
   assert.equal((await L.probe()).audio.contexts, 1);
 }); });
-test('bug 6b: alarm rings until OK, with no extra AudioContexts, then acks to the exe', () => {
+test('bug 6b: alarm rings while logging continues, then acks without stopping the test', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
     exe.post('/api/start'); exe.unplug(); exe.drain(15); exe.end('alarm'); await L.step(6000);
     assert.ok(await L.page.isVisible('#alarm'));
-    assert.equal(await txt(L, '#alarmT'), 'Plug in the charger');
-    assert.match(await txt(L, '#alarmS'), /^The test is done and the report is saved to the Desktop\. Beeping until you click OK\.$/);
+    assert.equal(await txt(L, '#alarmT'), 'Battery level reached');
+    assert.match(await txt(L, '#alarmS'), /Plug in the charger soon \(recommended\)\. Logging continues until you stop it\./);
+    assert.equal(exe.S.status, 'running', 'threshold alarm does not end logging');
     await L.run(12_000);
     let { audio } = await L.probe();
     assert.equal(audio.contexts, 1); assert.ok(audio.starts >= 6, `beeps ${audio.starts}`);
@@ -476,17 +479,17 @@ test('bug 16b: storage does not grow with the log (no localStorage; v13 key unto
 }));
 
 // ---------------- bug 17 ----------------
-test('bug 17a: alarm % is a setting, 10–50, sent to the exe', () => {
+test('bug 17a: alarm % is a setting, 1 to current battery level, sent to the exe', () => {
   const exe = new FakeExe();
   return withExe(exe, {}, async (L) => {
     exe.post('/api/start'); exe.unplug(); await L.step(5000);
     const el = L.page.locator('#alarmPct');
-    assert.equal(await el.getAttribute('min'), '10'); assert.equal(await el.getAttribute('max'), '50');
+    assert.equal(await el.getAttribute('min'), '1'); assert.equal(await el.getAttribute('max'), '100');
     await el.fill('20'); await el.press('Tab'); await L.run(100);
     assert.ok(exe.calls.some(c => c.p === '/api/alarm-pct'));
-    await el.fill('5'); await el.press('Tab'); await L.run(100);
+    await el.fill('0'); await el.press('Tab'); await L.run(100);
     const v = +(await el.inputValue());
-    assert.ok(v >= 10 && v <= 50, `alarm box shows ${v}`);
+    assert.ok(v >= 1 && v <= 100, `alarm box shows ${v}`);
   });
 });
 test('bug 17b: the alarm is a soft sine (gain 0.2), not a full-volume sawtooth', () => {
@@ -551,7 +554,7 @@ test('contract: a finished test renders every stat and Result field (no blanks)'
   return withExe(exe, {}, async (L) => {
     exe.post('/api/start'); exe.unplug(); await L.step(5000);
     for (let i = 1; i <= 6; i++) { exe.at += 10 * MIN; exe.drain(98 - i * 3); }
-    exe.gap(20); exe.drain(70); exe.plug(); exe.at += 5 * MIN; exe.unplug(); exe.drain(15); exe.end('alarm');
+    exe.gap(20); exe.drain(70); exe.plug(); exe.at += 5 * MIN; exe.unplug(); exe.drain(15); exe.end('stop');
     await L.step(6000);
     await L.click('#aOk'); await L.run(200);
     const bad = /undefined|NaN|null|\[object/;
@@ -560,7 +563,7 @@ test('contract: a finished test renders every stat and Result field (no blanks)'
     for (const id of ['#pct', '#health', '#watts', '#pctSub', '#healthSub', '#wattsSub', '#unit', '#runtime', '#range', '#savedT', '#savedF', '#facts'])
       assert.ok((await txt(L, id)).trim().length > 0, `${id} is blank`);
     assert.equal(await txt(L, '#savedT'), 'Report saved to the Desktop');
-    assert.match(await txt(L, '#range'), /% → 15% · alarm reached at \d\d:\d\d$/);
+    assert.match(await txt(L, '#range'), /% → 15%/);
     assert.match(await txt(L, '#health'), /^(\d+\.\d%|100\.0%)$/);
     const ev = await L.page.locator('#rows tr td:nth-child(2)').allInnerTexts();
     ev.forEach((t, i) => assert.ok(t.trim().length > 0, `table row ${i} has no event label`));

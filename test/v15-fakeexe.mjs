@@ -59,7 +59,7 @@ export class FakeExe {
   }
   startTest() {
     this.countdownEndsMs = null;
-    this.S = { id: 's' + this.at, status: 'running', startedMs: this.at, alarmPct: this.alarmPct, alarmPctMax: 50, alarm: false, alarmAck: false, segments: [] };
+    this.S = { id: 's' + this.at, status: 'running', startedMs: this.at, alarmPct: this.alarmPct, alarmPctMax: Math.floor(this.pct), alarm: false, alarmAck: false, segments: [] };
     this.samples = []; this.events = []; this.result = null;
     const L = this.latch && !this.cancelledSinceUnplug ? this.latch : null; // E6: straight after the unplug → start at the latch
     if (L) this.seg(true, L.ms, L.pct, L.mwh); else this.seg(true);
@@ -75,14 +75,16 @@ export class FakeExe {
     if (this.S && this.S.status === 'running') { this.seg(false); this.S.status = 'paused'; this.ev('charger_in'); this.sample(); } // M1: same ms
   }
   setPct(p) { this.pct = p; }
-  drain(p) { this.pct = p; this.sample(); }
+  drain(p) { this.pct = p; this.sample(); if (this.S && this.S.status === 'running' && !this.ac && p <= this.S.alarmPct) this.triggerAlarm(); }
+  triggerAlarm() { if (this.S && !this.S.alarm) { this.S.alarm = true; this.S.alarmAck = false; this.ev('alarm'); } }
   gap(mins, note = 'slept') { const from = this.at; this.seg(false); this.at += mins * MIN; this.ev('gap', { fromMs: from, toMs: this.at, note }); this.seg(true); }
   end(kind) {
-    this.seg(false); this.ev(kind === 'alarm' ? 'alarm' : 'stop');
-    this.S.status = 'done'; this.S.alarm = kind === 'alarm';
+    if (kind === 'alarm') { this.triggerAlarm(); return; }
+    this.seg(false); this.ev('stop');
+    this.S.status = 'done';
     const g0 = this.S.segments[0], run = this.elapsed();
-    this.result = { kind, reason: kind === 'alarm' ? 'Ended at alarm' : 'Stopped early', startEnd: `${g0.startPct}% → ${this.pct}%`,
-      alarmAck: kind !== 'alarm', runtimeS: run, startPct: g0.startPct, endPct: this.pct, estFullS: null, estFullEnergyS: null,
+    this.result = { kind, reason: 'Stopped early', startEnd: `${g0.startPct}% → ${this.pct}%`,
+      alarmAck: !this.S.alarm || this.S.alarmAck, runtimeS: run, startPct: g0.startPct, endPct: this.pct, estFullS: null, estFullEnergyS: null,
       avgW: 9.5, minW: 8.1, maxW: 11.2, healthPct: 91.9, fullChangedMwh: null, gapCount: 0, gapS: 0, pauseCount: 0, pauseS: 0,
       saver: 'off', brightnessStart: 60, brightnessEnd: 60, plan: 'Balanced', windows: 'Windows 11 Pro',
       files: { html: 'C:\\Users\\tech\\Desktop\\Battery 5CB4190FVX 2026-11-26 0900.html', csv: 'C:\\Users\\tech\\Desktop\\Battery 5CB4190FVX 2026-11-26 0900.csv' } };
@@ -93,7 +95,7 @@ export class FakeExe {
     return { rev: this.rev, version: this.app.version, nowMs: this.at, unit: this.unit, batteries: this.batteries,
       now: { pct: this.pct, mwh: this.mwh(), fullMwh: 47378, rateMw: this.ac ? null : this.rateMw, ac: this.ac, charging: this.ac && this.pct < 100, saver: false },
       checks: this.checks(), armed: this.armed, countdownEndsMs: this.countdownEndsMs, app: { ...this.app },
-      session: S && { id: S.id, status: S.status, startedMs: S.startedMs, alarmPct: S.alarmPct, alarmPctMax: 50, alarm: S.alarm, alarmAck: S.alarmAck,
+      session: S && { id: S.id, status: S.status, startedMs: S.startedMs, alarmPct: S.alarmPct, alarmPctMax: Math.floor(this.pct), alarm: S.alarm, alarmAck: S.alarmAck,
         segments: S.segments.map(g => ({ ...g })) },
       samples: this.samples.filter(x => x.rev > since), events: this.events.filter(x => x.rev > since), result: S && S.status === 'done' ? this.result : null };
   }
@@ -110,7 +112,7 @@ export class FakeExe {
         this.S = null; this.result = null; this.armed = true; this.latch = null; return { ok: true };
       case '/api/stop': if (st !== 'running' && st !== 'paused') return { ok: false, error: 'No test is running.' }; this.end('stop'); return { ok: true };
       case '/api/ack-alarm': if (this.S) this.S.alarmAck = true; if (this.result) this.result.alarmAck = true; return { ok: true };
-      case '/api/alarm-pct': if (!(body.pct >= 10 && body.pct <= 50)) return { ok: false, error: 'Alarm must be 10 to 50%.' };
+      case '/api/alarm-pct': if (!(body.pct >= 1 && body.pct <= this.pct)) return { ok: false, error: 'Alarm must be from 1% up to the current battery level.' };
         this.alarmPct = body.pct; if (this.S) this.S.alarmPct = body.pct; return { ok: true };
       case '/api/save-csv': return this.S ? { ok: true, file: 'C:\\Users\\tech\\Desktop\\x.csv' } : { ok: false, error: 'No test yet.' };
       case '/api/start': return { ok: false, error: 'Not available.' }; // test-only in the real exe (TESTHOOKS)

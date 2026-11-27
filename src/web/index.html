@@ -96,14 +96,14 @@ body.hid .plug,body.hid .arrowhint,body.hid .bolt{animation-play-state:paused}
 .ring .arc{animation:sweep 1s linear forwards}
 
 /* ---------- logging / paused ---------- */
-.band{padding:clamp(10px,2.6cqh,22px) clamp(16px,3cqw,32px);display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px 24px;color:var(--on-color);flex:none}
+.band{padding:6px clamp(16px,3cqw,32px);display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 20px;color:var(--on-color);flex:none}
 .band.log{background:var(--log)} .band.pause{background:var(--wait-ground);color:#1d1503}
-.word{display:flex;align-items:center;gap:.35em;font-size:clamp(30px,8cqh,62px);font-weight:800;letter-spacing:.02em;line-height:1}
+.word{display:flex;align-items:center;gap:.35em;font-size:clamp(22px,5.5cqh,42px);font-weight:800;letter-spacing:.02em;line-height:1}
 .word .dot{width:.42em;height:.42em;border-radius:50%;background:currentColor;flex:none}
 .word .bars{display:inline-flex;gap:.12em} .word .bars i{width:.16em;height:.62em;background:currentColor;border-radius:2px}
-.clock{font-size:clamp(46px,15cqh,120px);font-weight:700;line-height:.95;letter-spacing:-.02em;text-align:right}
-.clock small{display:block;font-size:clamp(12px,2.4cqh,16px);font-weight:500;letter-spacing:0;opacity:.85;margin-top:4px}
-.bandsub{font-size:clamp(16px,3.6cqh,26px);font-weight:500;opacity:.95;grid-column:1/2}
+.clock{font-size:clamp(26px,7cqh,54px);font-weight:700;line-height:1;letter-spacing:-.02em;text-align:right}
+.clock small{display:block;font-size:11px;font-weight:500;letter-spacing:0;opacity:.85;margin-top:2px}
+.bandsub{font-size:clamp(13px,2.6cqh,18px);font-weight:500;opacity:.95;grid-column:1/2}
 .band.pause .bandsub{font-weight:700}
 
 .stats{display:grid;grid-template-columns:1.25fr 1.25fr 1fr 1fr;border-bottom:1px solid var(--line);flex:none}
@@ -285,7 +285,7 @@ tr.new td{animation:hl 1.4s ease-out}
         <div class="stat multi" id="multiTile" hidden><span class="k" id="multiHead"></span><div id="multiRows"></div></div>
       </div>
       <div class="actions">
-        <label for="alarmPct">Alarm at <input type="number" id="alarmPct" min="10" max="50" value="15">%</label>
+        <label for="alarmPct">Alarm at <input type="number" id="alarmPct" min="1" max="100" value="15">%</label><span class="msg" id="alarmMsg" hidden></span>
         <span class="spacer"></span>
         <button id="pauseBtn">‖ Pause</button>
         <details class="exportDropdown" id="runExport">
@@ -352,8 +352,8 @@ tr.new td{animation:hl 1.4s ease-out}
     <div class="ov" id="alarm" hidden>
       <div class="alarmbox" role="alertdialog" aria-labelledby="alarmT">
         <div class="pct" id="alarmPctV">15%</div>
-        <div class="t" id="alarmT">Plug in the charger</div>
-        <div class="s" id="alarmS">The test is done and the report is saved to the Desktop. Beeping until you click OK.</div>
+        <div class="t" id="alarmT">Battery level reached</div>
+        <div class="s" id="alarmS">Plug in the charger soon (recommended). Logging continues until you stop it. Beeping until you click OK.</div>
         <div class="sound" id="soundNote" hidden>Click anywhere to enable the alarm sound</div>
         <button class="primary huge" id="aOk">OK</button>
       </div>
@@ -707,10 +707,9 @@ function renderPre(s, v, n, ck, app) {
     case 'nobatt': tone = 'tone-bad'; key = 'nobatt'; art = battSvg(0, { empty: 1, x: 1 }); big = '';
       step = 'No battery found'; hint = 'This laptop can’t be tested. Check the battery is fitted, then open the logger again.'; break;
     case 'low':
-      var lowAlarm = p != null && ck.alarmPct != null && p <= ck.alarmPct;
-      key = 'low' + p + lowAlarm; art = battSvg(p, { col: lowAlarm ? 'var(--bad)' : 'var(--wait-ground)' });
+      key = 'low' + p; art = battSvg(p, { col: 'var(--wait-ground)' });
       step = 'Plug in and charge to 96%';
-      hint = ck.startAnyway ? '' : lowAlarm ? 'Too low to start, even by hand. The alarm is at ' + ck.alarmPct + '%.' : 'The charger is unplugged and the battery is too low to start.'; break;
+      hint = ck.startAnyway ? '' : 'The charger is unplugged and the battery is too low to start.'; break;
     case 'charge': key = 'charge' + p; art = battSvg(p, { bolt: 1 });
       step = 'Charging… wait for 96%'; hint = Math.max(0, 96 - (p || 0)) + '% to go. Leave the charger in.' + (ck.chargeLimitHint ? ' Check the battery charge-limit setting.' : ''); break;
     case 'waitupd':
@@ -729,7 +728,7 @@ function renderPre(s, v, n, ck, app) {
   setHtml('bigpct', big); setProp('bigpct', 'hidden', !big);
   setText('step', step); setText('hint', hint); setProp('hint', 'hidden', !hint);
   setProp('startWrap', 'hidden', !v.showStart);
-  var any = v.stage === 'low' && !!ck.startAnyway;   // D2: hidden at or below the alarm
+  var any = v.stage === 'low' && !!ck.startAnyway;
   setProp('anyArea', 'hidden', !any);
   if (!any) anyConfirming = false;
   setProp('anyBtn', 'hidden', anyConfirming); setProp('anyHint', 'hidden', anyConfirming); setProp('anyConf', 'hidden', !anyConfirming);
@@ -759,6 +758,8 @@ function renderRun(s, v, n, sess) {
   setText('manualPill', b.manual || ''); setProp('manualPill', 'hidden', !b.manual);
   setProp('pauseBtn', 'hidden', paused); if (!lost) setProp('pauseBtn', 'disabled', false);
   if (!document.hidden) tickOnce(false);   // hidden: h:mm is written once on hide, never by a poll (E7)
+  var alarmMax = String(sess.alarmPctMax == null ? 100 : sess.alarmPctMax);
+  if ($('alarmPct').max !== alarmMax) $('alarmPct').max = alarmMax;
   if (document.activeElement !== $('alarmPct') && $('alarmPct').value !== String(sess.alarmPct)) $('alarmPct').value = sess.alarmPct;
   if (!lost) setProp('stopBtn', 'disabled', false);
 }
@@ -979,9 +980,10 @@ function renderAlarm(s, sess) {
   var on = !lost && !!(sess && sess.alarm && !sess.alarmAck && ackedId !== sess.id);
   if (on && $('alarm').hidden) {
     var r = s.result || {};
-    $('alarmPctV').textContent = (r.endPct != null ? r.endPct : sess.alarmPct) + '%';
-    $('alarmS').textContent = r.files && r.files.html ? 'The test is done and the report is saved to the Desktop. Beeping until you click OK.'
-      : 'The test is done, but the report could not be saved to the Desktop. Beeping until you click OK.';
+    $('alarmPctV').textContent = sess.alarmPct + '%';
+    $('alarmS').textContent = sess.status === 'done' && (!r.files || !r.files.html)
+      ? 'The test was manually stopped, but its report could not be saved to the Desktop. Plugging in is recommended. Beeping until you click OK.'
+      : 'Plug in the charger soon (recommended). Logging continues until you stop it. Beeping until you click OK.';
     unlockAudio();
     setProp('soundNote', 'hidden', !(audio && audio.state === 'suspended'));
     $('alarm').hidden = false;
@@ -1139,7 +1141,11 @@ $('alarmPct').onchange = function () {
   var v = parseInt($('alarmPct').value, 10);
   command('/api/alarm-pct', { pct: v }, null).then(function (r) {
     var sess = st.snap && st.snap.session;
-    if (r && r.ok === false && sess) $('alarmPct').value = sess.alarmPct;
+    if (r && r.ok === false) {
+      $('alarmMsg').textContent = r.error || 'Could not change the alarm.';
+      $('alarmMsg').hidden = false;
+      if (sess) $('alarmPct').value = sess.alarmPct;
+    } else $('alarmMsg').hidden = true;
   });
 };
 
@@ -1273,7 +1279,10 @@ var Local = (function () {
   }
   function check() {
     var p = pctNow();
-    if (S.status === 'running' && bat && !bat.charging && p != null && p <= S.alarmPct) end('alarm');
+    if (S.status === 'running' && bat && !bat.charging && p != null && p <= S.alarmPct && !S.alarm) {
+      S.alarm = true; S.alarmAck = false;
+      event('alarm', null, 'Battery reached its alarm level. Plug in soon (recommended).');
+    }
   }
   function onCharging() {
     if (!S) { latchPct = bat.charging ? null : pctNow(); return; }
@@ -1399,7 +1408,7 @@ var Local = (function () {
       live: { avgW: null, etaToAlarmS: liveEta(), healthPct: null },
       unit: { maker: '', model: 'Browser only', serial: null, computerName: null }, batteries: [],
       now: { pct: p, mwh: null, fullMwh: null, rateMw: null, ac: bat ? bat.charging : null, charging: bat ? bat.charging && p < 100 : false, saver: false },
-      session: S ? { id: S.id, status: S.status, startedMs: S.startedMs, alarmPct: S.alarmPct, alarmPctMax: 50,
+      session: S ? { id: S.id, status: S.status, startedMs: S.startedMs, alarmPct: S.alarmPct, alarmPctMax: p == null ? 100 : Math.floor(p),
         alarm: !!S.alarm, alarmAck: !!S.alarmAck, segments: segs,
         pausedSinceMs: S.status === 'paused' && S.pauses.length && !S.pauses[S.pauses.length - 1].toMs ? S.pauses[S.pauses.length - 1].fromMs : null } : null,
       samples: S ? samples.filter(function (x) { return x.rev > since; }) : [],
@@ -1421,7 +1430,7 @@ var Local = (function () {
         case 'ack-alarm': if (S) { S.alarmAck = true; save(); } return { ok: true };
         case 'alarm-pct':
           var v = body && body.pct;
-          if (!(v >= 10 && v <= 50)) return { ok: false, error: 'Alarm must be 10 to 50%.' };
+          if (!(v >= 1 && v <= (pctNow() == null ? 100 : pctNow()))) return { ok: false, error: 'Alarm must be from 1% up to the current battery level.' };
           alarmPct = v; if (active()) S.alarmPct = v; save(); return { ok: true };
         case 'open-report': return { ok: false, error: 'Browser only: open it from your Downloads folder.' };
         case 'save-csv': if (!S) return { ok: false, error: 'No test yet.' }; download(baseName() + '.csv', csvText(), 'text/csv'); return { ok: true, file: baseName() + '.csv' };

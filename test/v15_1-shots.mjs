@@ -27,7 +27,7 @@ const SCREENS = {
   logging: (e) => { logging(e); e.setUpdate('downloading', { percent: 40, bytes: 1, total: 2 }); },
   paused: (e) => { logging(e); e.at += MIN; e.plug(); e.at += 130_000; },
   alarm: (e) => { logging(e); e.at += MIN; e.drain(15); e.end('alarm'); },
-  done: (e) => { logging(e); e.at += MIN; e.drain(15); e.end('alarm'); e.S.alarmAck = true; e.result.alarmAck = true; },
+  done: (e) => { logging(e); e.at += MIN; e.drain(15); e.end('stop'); e.S.alarmAck = true; e.result.alarmAck = true; },
   'upd-downloading': (e) => { e.pct = 100; e.ac = true; e.setUpdate('downloading', { percent: 62, bytes: 2_852_000, total: 4_600_000 }); },
   'upd-ready': (e) => { e.pct = 100; e.ac = true; e.setUpdate('ready'); },
   'upd-failed': (e) => { e.pct = 100; e.ac = true; e.setUpdate('failed', { note: 'Update check failed (no internet?)' }); },

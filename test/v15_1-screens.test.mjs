@@ -154,7 +154,7 @@ test('Logging: green LOGGING band, elapsed, the 4 tiles, Stop test; no chart, no
     await L.step(5000, 5000);
     const s = await stage(L);
     assert.match(s, /LOGGING/); assert.match(s, /elapsed/);
-    assert.match(s, /Leave the charger unplugged\. The test ends by itself at 15%\./);
+    assert.match(s, /Alarm at 15%\. Plug in soon \(recommended\); logging continues until you stop it\./);
     for (const k of ['Charge', 'Time to alarm', 'Power', 'Health']) assert.match(s, new RegExp(k));
     assert.match(s, /estimate, gets better over time/); assert.match(s, /avg 9\.9 W/);
     assert.ok(await vis(L, SEL.stop)); assert.match(await L.text(SEL.stop), /Stop test/);
@@ -188,17 +188,19 @@ test('Stop test asks in the page; End test → Done screen', () => {
   });
 });
 
-// ---------------- alarm + Done ----------------
-test('alarm box over Done: "15%", "Plug in the charger", "Beeping until you click OK.", OK → ack', () => {
+// ---------------- alarm while Logging ----------------
+test('alarm box while logging: "15%", charger recommendation, logging continues, OK → ack', () => {
   const exe = new FakeExe151({ pct: 100, ac: true });
   return withExe(exe, {}, async (L) => {
     await toLogging(L, exe);
     exe.at += MIN; exe.drain(15); exe.end('alarm'); await L.step(5000);
     const o = await overlay(L);
-    assert.match(o, /15%/); assert.match(o, /Plug in the charger/); assert.match(o, /Beeping until you click OK\./);
+    assert.match(o, /15%/); assert.match(o, /Plug in the charger soon \(recommended\)/); assert.match(o, /Logging continues until you stop it/);
+    assert.equal(exe.S.status, 'running');
     await L.click(SEL.alarmOk); await L.run(300);
     assert.ok(exe.count('/api/ack-alarm', 'POST') >= 1);
-    assert.doesNotMatch(await overlay(L), /Plug in the charger/);
+    assert.doesNotMatch(await overlay(L), /Plug in the charger soon/);
+    assert.match(await L.text('#bigWord'), /LOGGING/);
   });
 });
 test('Done: runtime, range, saved files, facts grid; Open report → /api/open-report; New test → /api/new', () => {

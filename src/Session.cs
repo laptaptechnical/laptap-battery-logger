@@ -31,7 +31,7 @@ public class SessionData
     public string Id, Status = "running", Version = AppVersion.Version;
     public int AlarmPct = 15;
     public long StartedMs;
-    public long? UnplugMs, EndMs, LastSampleMs;
+    public long? UnplugMs, EndMs, LastSampleMs, AlarmMs;
     public double? StartPct, StartMwh, EndPct, EndMwh, LastPct, LastMwh;
     public string EndKind, EndText;
     public bool Alarm, AlarmAck;
@@ -451,11 +451,20 @@ public class Engine
 
     void AlarmFallback(long now)
     {
-        if (S == null || !S.Alarm || S.AlarmAck || !S.EndMs.HasValue) return;
-        long since = now - S.EndMs.Value;
+        if (S == null || !S.Alarm || S.AlarmAck || !S.AlarmMs.HasValue) return;
+        long since = now - S.AlarmMs.Value;
         if (since < 60000 || since > 30 * 60000L) return;
         if (!reopened) { reopened = true; if (!QaNoWindow) { try { OpenWindow(); } catch { } } }
         if (now - lastBeepMs >= 5000) { lastBeepMs = now; try { SystemSounds.Exclamation.Play(); } catch { } }
+    }
+
+    void TriggerAlarm(Sample s)
+    {
+        if (S == null || S.Status == "done" || S.Alarm) return;
+        S.Alarm = true;
+        S.AlarmAck = false;
+        S.AlarmMs = s.Ms;
+        AddEvent("alarm", "Alarm at " + Rules.Num(s.Pct) + "%", "alarm", s);
     }
 
     // ---------- samples ----------
@@ -505,7 +514,7 @@ public class Engine
         }
         TrackBatteries(s);
         if (ev == null || ev == "gap_end") AppendCsv(s);   // event readings are written by AddEvent
-        if ((S.Status == "running" || S.ManualPaused) && !s.Ac && s.Pct.HasValue && s.Pct.Value <= S.AlarmPct) End("alarm", true);   // D5: also a manually paused test
+        if ((S.Status == "running" || S.ManualPaused) && !s.Ac && s.Pct.HasValue && s.Pct.Value <= S.AlarmPct) TriggerAlarm(s);
         return s;
     }
 
@@ -928,12 +937,18 @@ public class Engine
                 {
                     int p = 0; object v;
                     if (body != null && body.TryGetValue("pct", out v) && v != null) int.TryParse(Convert.ToString(v, CultureInfo.InvariantCulture), out p);
-                    if ((p >= 10 && p <= 50) || (QaAlarmPct > 0 && p == QaAlarmPct))
+                    if ((p >= 1 && p <= AlarmPctMax) || (QaAlarmPct > 0 && p == QaAlarmPct))
                     {
                         AlarmPct = p;
-                        if (Active) { S.AlarmPct = p; SaveSession(); }
+                        if (Active)
+                        {
+                            S.AlarmPct = p;
+                            Sample s = FullSample(null);
+                            if (!s.Ac && s.Pct.HasValue && s.Pct.Value <= S.AlarmPct) TriggerAlarm(s);
+                            SaveSession();
+                        }
                     }
-                    else { r["ok"] = false; r["error"] = "Alarm must be 10 to 50%."; }
+                    else { r["ok"] = false; r["error"] = "Alarm must be from 1% up to the current battery level (" + AlarmPctMax + "%)."; }
                     break;
                 }
             case "save-csv":
@@ -974,11 +989,11 @@ public class Engine
     }
 #endif
 
-    // v16 §2: unplugged, below 96%, above the alarm %. The exe's own reading decides; it starts through the normal start
+    // v16 §2: unplugged and below 96%. The exe's own reading decides; it starts through the normal start
     // path ("unplugged" + "start"), so segment 1 opens; marked manual. No 3-2-1. At ≥ 96% the countdown is the way.
     public bool StartAnywayOffered(double? pct, bool ac, bool present)
     {
-        return IsReady && present && !ac && pct.HasValue && pct.Value < 96 && pct.Value > AlarmPct;
+        return IsReady && present && !ac && pct.HasValue && pct.Value > 0 && pct.Value < 96;
     }
     string StartAnyway()
     {
@@ -990,7 +1005,7 @@ public class Engine
         if (ac) return "Unplug the charger first.";
         if (!pct.HasValue) return "Windows gives no battery %.";
         if (pct.Value >= 96) return "Charged to 96% or more: the test starts by itself.";
-        if (pct.Value <= AlarmPct) return "Too low to start, even by hand. The alarm is at " + AlarmPct + "%.";   // D2
+        if (pct.Value <= 0) return "Battery is too low to start logging.";
         CountdownEndsMs = null;
         latch = Hw.ReadLive(FullMwh()); if (!latch.Pct.HasValue) latch.Pct = pct;
         latchUsable = true;
@@ -1070,9 +1085,14 @@ public class Engine
         if (S.StartPct == null) { S.StartPct = S.EndPct; }
         S.EndKind = kind;
         S.EndText = Rules.EndReason(kind, S.EndPct, Rules.CountedTime(S.Segments));
-        S.Alarm = kind == "alarm";
+        bool newAlarm = kind == "alarm" && !S.Alarm;
+        if (newAlarm)
+        {
+            S.Alarm = true;
+            S.AlarmMs = now;
+        }
         S.Status = "done";
-        if (kind == "alarm") AddEvent("alarm", "Alarm at " + Rules.Num(S.EndPct) + "%", "alarm", Latest);
+        if (newAlarm) AddEvent("alarm", "Alarm at " + Rules.Num(S.EndPct) + "%", "alarm", Latest);
         else if (kind == "stop") AddEvent("stop", "Stopped by tech", "ev", Latest);
         else if (live || kind == "battery_ran_out") AddEvent(kind, S.EndText, kind == "battery_ran_out" ? "alarm" : "ev", null);   // D7 / C3
         else AddEvent("recovered", S.EndText, "ev", null, kind, null, null); // an old test finished at start-up (§3.7)
@@ -1203,7 +1223,7 @@ public class Engine
     }
 
     // ---------- snapshot for GET /api/state (api-contract.md; immutable, swapped in for the HTTP thread) ----------
-    public int AlarmPctMax { get { return Math.Max(50, QaAlarmPct); } }
+    public int AlarmPctMax { get { return curPct.HasValue ? (int)Math.Floor(Math.Max(0, Math.Min(100, curPct.Value))) : 100; } }
 
     public void Publish()
     {

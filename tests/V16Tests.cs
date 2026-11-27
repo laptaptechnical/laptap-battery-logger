@@ -52,6 +52,7 @@ static class V16Tests
             Report.QaOutDir = Path.Combine(tmpRoot, "desk"); Directory.CreateDirectory(Report.QaOutDir);
             Updater.Progress = new UpdateProgress();
             StartAnyway();
+            AlarmBehavior();
             PauseFlags();
             Sleep();
             Segments();
@@ -99,9 +100,12 @@ static class V16Tests
         hw.Ac = false; hw.Pct = 82; en.Tick(); en.Publish();
         Eq(true, D(en.Snapshot["checks"])["startAnyway"], "offered: unplugged, 82% (< 96%, > alarm 15%)");
         hw.Pct = 15; en.Tick(); en.Publish();
-        Eq(false, D(en.Snapshot["checks"])["startAnyway"], "D2: hidden at the alarm %");
+        Eq(true, D(en.Snapshot["checks"])["startAnyway"], "manual start remains available at the alarm level");
         Dictionary<string, object> r = en.Command("start-anyway", null);
-        Ok(!(bool)r["ok"] && ((string)r["error"]).StartsWith("Too low to start, even by hand"), "refused at the alarm %");
+        Eq(true, r["ok"], "Start anyway at the alarm level");
+        Ok(en.S.Status == "running" && en.S.Alarm, "alarm warns but keeps logging active");
+        en.Command("stop", null);
+        en.Command("new", null);
         hw.Pct = 97; en.Tick();
         Ok(!(bool)en.Command("start-anyway", null)["ok"], "refused at ≥ 96% (the countdown is the way)");
         hw.Pct = 82; hw.Ac = true; en.Tick();
@@ -125,6 +129,36 @@ static class V16Tests
         Eq("Manual start at 82% (below 96%)", Report.ManualNote(en.S), "Done / report line");
         Eq("n/a (too short to estimate)", Report.EstFullText(en.S, null), "M6: a short run can't estimate 100→0%");
         Ok(Rules.Segments(Evs(en)).Count == 1, "Rules.Segments rebuilds the one segment (unplugged … stop)");
+        ClearSessions();
+    }
+
+    static void AlarmBehavior()
+    {
+        Section("alarm warns without ending; threshold follows current battery");
+        ClearSessions();
+        FakeHw hw = new FakeHw(); hw.Pct = 87;
+        long[] poll = { hw.T }; Engine en = NewEngine(hw, poll);
+        en.Tick(); en.Publish();
+        Eq(87, en.AlarmPctMax, "ceiling is the current percentage");
+        Dictionary<string, object> body = new Dictionary<string, object>(); body["pct"] = 87;
+        Eq(true, en.Command("alarm-pct", body)["ok"], "the current percentage is an allowed threshold");
+        body["pct"] = 88;
+        Eq(false, en.Command("alarm-pct", body)["ok"], "cannot set a threshold above current charge");
+        body["pct"] = 1;
+        Eq(true, en.Command("alarm-pct", body)["ok"], "1% is an allowed threshold");
+        hw.Ac = false; Step(en, hw, poll, 1000);
+        Eq(true, en.Command("start-anyway", null)["ok"], "manual start below 96%");
+        body["pct"] = 70;
+        Eq(true, en.Command("alarm-pct", body)["ok"], "set the alarm during logging");
+        hw.Pct = 70; hw.Mwh = 33000; Step(en, hw, poll, 10000);
+        Ok(en.S.Status == "running" && en.S.Alarm && en.S.EndMs == null && en.S.OpenSeg != null,
+            "crossing the threshold records an alarm and keeps the test running");
+        Eq(1, Count(en, "alarm"), "one alarm event");
+        en.Command("ack-alarm", null);
+        Ok(en.S.Status == "running" && en.S.AlarmAck, "acknowledging the warning does not stop logging");
+        en.Command("stop", null);
+        Ok(en.S.Status == "done" && en.S.EndKind == "stop" && en.S.Alarm,
+            "only manual stop ends the test; alarm remains in the result");
         ClearSessions();
     }
 
@@ -157,10 +191,11 @@ static class V16Tests
         Ok(en.S.Status == "paused" && !en.S.ManualPaused && en.S.ChargerIn, "charger pause");
         hw.Ac = false; Step(en, hw, poll, 1000);
         Ok(en.S.Status == "running", "charger only → unplug resumes");
-        // the alarm while paused by you ends the test (D5)
+        // the alarm while paused by you warns but does not end the test
         en.Command("pause", nobody);
         hw.Pct = 14; hw.Mwh = 7000; Step(en, hw, poll, 61000);
-        Ok(en.S.Status == "done" && en.S.EndKind == "alarm", "D5: the alarm ends a manually paused test");
+        Ok(en.S.Status == "paused" && en.S.Alarm, "the alarm does not end a manually paused test");
+        en.Command("stop", null);
         Ok(Rules.Segments(Evs(en)).Count == en.S.Segments.Count, "Rules.Segments = the engine's segments (" + en.S.Segments.Count + ")");
         // manual → sleep → wake stays paused
         ClearSessions();

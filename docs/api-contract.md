@@ -22,7 +22,7 @@ the v15.1 plan's §5, reduced scope (marked **v15.1**). Times are epoch ms
   "session": null | {
     "id": "20261126-090000", "status": "running" | "paused" | "done",
     "startedMs": 0,
-    "alarmPct": 15, "alarmPctMax": 50, "alarm": false, "alarmAck": false, "pausedSinceMs": null,
+    "alarmPct": 15, "alarmPctMax": 98, "alarm": false, "alarmAck": false, "pausedSinceMs": null,
     "segments": [ { "startMs": 0, "endMs": null, "startPct": 98, "endPct": null, "startMwh": 46000, "endMwh": null } ]
   },
   "samples": [ { "rev": 41, "ms": 0, "elapsedS": 0, "pct": 98, "mwh": 46000, "fullMwh": 47378,
@@ -30,8 +30,8 @@ the v15.1 plan's §5, reduced scope (marked **v15.1**). Times are epoch ms
   "events":  [ { "rev": 40, "ms": 0, "elapsedS": 0, "type": "start", "pct": 98, "mwh": 46000, "rateMw": null,
                  "note": "", "fromMs": null, "toMs": null } ],
   "result": null | {
-    "kind": "alarm" | "stop" | "hibernated" | "shutdown" | "shutdown_user" | "logger_stopped",
-    "reason": "Ended at alarm", "startEnd": "98% → 15%", "alarmAck": true,
+    "kind": "stop" | "hibernated" | "shutdown" | "shutdown_user" | "logger_stopped",
+    "reason": "Stopped early", "startEnd": "98% → 15%", "alarmAck": true,
     "runtimeS": 39600, "startPct": 98, "endPct": 15,
     "estFullS": 35044, "estFullEnergyS": 35399, "avgW": 4.82, "minW": 3.1, "maxW": 12.4,
     "healthPct": 91.9, "fullChangedMwh": null,
@@ -71,6 +71,9 @@ the v15.1 plan's §5, reduced scope (marked **v15.1**). Times are epoch ms
   until 5 counted samples. `healthPct` is raw like `result.healthPct`; `etaToAlarmS` is null while paused.
 - **v15.1 `session.pausedSinceMs`:** the plug-in time of the open pause; null unless Paused. Derived, never stored in
   `session.json` (no new stored fields: older copies on sticks share the data folder).
+- **Battery alarm:** `alarmPctMax` is the current battery percentage rounded down (or 100 when unavailable). Set
+  `alarmPct` from 1 through that ceiling. Crossing the alarm records one `alarm` event and shows an alert; it does not
+  finish the session. Plugging in is recommended, not required. `/api/stop` is the normal way to finish logging.
 - `samples`/`events`: only rows with `rev > since`; all rows when `since` is 0 or missing. `elapsedS` = counted time.
 - **Event types** (same strings as the CSV `event` column): `start`, `unplugged` (the latched unplug reading when the
   countdown ran straight after it), `charger_in`, `charger_out`, `gap` (with `fromMs`/`toMs`; `note` = `slept` |
@@ -91,7 +94,7 @@ the v15.1 plan's §5, reduced scope (marked **v15.1**). Times are epoch ms
 
 - Every POST needs header `X-Laptap-Token` and a JSON body (or none). It answers `{ "ok": true }` or
   `{ "ok": false, "error": "<text>" }`.
-- `/api/heartbeat` (**v15.1:** body `{ "visible": true | false }`; no body = visible) · `/api/stop` · `/api/ack-alarm` · `/api/alarm-pct` body `{ "pct": 20 }` (10 to `alarmPctMax`) ·
+- `/api/heartbeat` (**v15.1:** body `{ "visible": true | false }`; no body = visible) · `/api/stop` · `/api/ack-alarm` · `/api/alarm-pct` body `{ "pct": 20 }` (1 to `alarmPctMax`, the current battery percentage rounded down) ·
   `/api/save-csv`, whose answer adds `"file": "<full path>"`.
 - **v15:** `/api/arm` (the Start button: re-arms; the same 3 s countdown runs) · `/api/cancel` (Countdown → Ready,
   disarmed) · `/api/new` (Done → Ready, armed). `/api/start` is **not** in the release exe: it exists only in a
@@ -132,7 +135,7 @@ and the exe's `Report.Slots` differ.
 |---|---|
 | `unitModel`, `unitSerial`, `computerName` | HP EliteBook 840 G5 · 5CB4190FVX · LAPTOP-1234 |
 | `date`, `startTime`, `endTime` | 2026-11-26 · 09:00 · 20:00 |
-| `reason`, `startEnd`, `runtime` | Ended at alarm · 98% → 15% · 11:00 |
+| `reason`, `startEnd`, `runtime` | Stopped early · 98% → 15% · 11:00 |
 | `estFull`, `estFullEnergy` | 9:44 · 9:50 (or "n/a") |
 | `avgW`, `minW`, `maxW` | 4.8 W · 3.1 W · 12.4 W |
 | `healthPct` | 91.9% (or "n/a") |

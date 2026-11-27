@@ -184,14 +184,17 @@ test('{ok:false} from the exe: the page re-polls and shows the exe\'s state, nev
   });
 });
 
-test('alarm in LOGGING: alarm box, Done screen with "alarm reached at hh:mm"', () => {
+test('alarm in LOGGING: warning appears while logging continues until manual stop', () => {
   const exe = new FakeExe({ pct: 99, ac: true });
   return withExe(exe, {}, async (L) => {
     await L.step(1000); exe.unplug(); await L.step(5000);
     exe.drain(15); exe.end('alarm'); await L.step(5000);
     assert.ok(await visible(L, SEL.alarm), 'alarm box');
+    assert.equal(exe.S.status, 'running');
     await L.click(SEL.alarmOk); await L.run(200);
-    assert.match(await band(L), /alarm reached at \d\d:\d\d/);
+    assert.match(await band(L), /LOGGING/);
+    await L.click(SEL.stop); await L.click(SEL.stopYes); await L.step(2000);
+    assert.match(await band(L), /Stopped early/);
     assert.ok(exe.count('/api/ack-alarm', 'POST') >= 1);
   });
 });
