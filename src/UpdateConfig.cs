@@ -11,6 +11,7 @@ public static class UpdateConfig
     public const string AssetName = "Laptap-Battery-Logger.exe";
     public const long MaxExeBytes = 5L * 1024 * 1024;
     public const int CheckDeadlineMs = 6000;        // per request, wall clock (C3)
+    public const int OfflineRetryIntervalMs = 10000;
     public const int DownloadDeadlineMs = 60000;
     public const int MaxReleaseJump = 1000;         // I3: a stolen key can't publish release 2147483647
 

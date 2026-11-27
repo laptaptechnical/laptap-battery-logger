@@ -352,7 +352,7 @@ public static class Updater
         return ok && e2 == null;
     }
 
-    // ---------- A: background check + download (runs on its own thread, once per start) ----------
+    // ---------- A: background check + download (runs on its own thread) ----------
     public class CheckOptions
     {
         public string ExePath;
@@ -362,6 +362,18 @@ public static class Updater
         public bool UpdatedThisStart;
         public Func<bool> Idle = delegate { return true; };   // Ready or Done
         public Func<bool> Stopping = delegate { return false; };
+    }
+
+    // A small manifest probe lets startup wait quietly for an internet connection before showing an update check.
+    public static bool CanReachUpdateService(string baseUrl)
+    {
+        if (string.IsNullOrEmpty(baseUrl) || !UpdateConfig.UrlAllowed(baseUrl)) return false;
+        PrepareTls();
+        GetResult r = Get(baseUrl + "/releases/latest/download/update.json", 64 * 1024, UpdateConfig.CheckDeadlineMs);
+        if (r.Status == 404) return true;
+        if (r.Status != 200 || r.Body == null) return false;
+        string err;
+        return Parse(r.Body, out err) != null;
     }
 
     // Returns a short outcome code (for tests and update.log).

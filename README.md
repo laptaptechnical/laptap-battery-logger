@@ -14,7 +14,8 @@ an HTML report and a CSV to the Desktop when the test ends.
   from the bundled clip or a file on the computer, with mute/unmute controls.
 - **Safer closing:** closing the logger asks for confirmation to help prevent accidentally ending the app.
 - **Self-update** (from v15): signed releases from this repo's GitHub Releases, downloaded quietly in the background
-  and swapped in at the next start, never during a test. See [docs/HOW-TO-RELEASE.md](docs/HOW-TO-RELEASE.md).
+  and swapped in at the next start, never during a test. If offline at launch, it quietly retries while idle and
+  pauses those checks during logging. See [docs/HOW-TO-RELEASE.md](docs/HOW-TO-RELEASE.md).
 
 Version: `VERSION` (`version=` and `release=`) is the only place it is written. `build.ps1` generates
 `src/Version.g.cs` and `src/app.manifest` from it, and fails if a version literal appears anywhere else in `src/`.

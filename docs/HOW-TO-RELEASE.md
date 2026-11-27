@@ -32,7 +32,8 @@ Your **primary** key stays on this PC, locked to your Windows user. Nobody else 
    the version and tags the release.
 2. It asks **"Push to GitHub now? (Y/N)"**. Type **Y** and press Enter.
 3. A folder opens with three files: `update.json`, `update.json.sig`, `Laptap-Battery-Logger.exe`.
-4. **First release only:** tell Microsoft the exe is safe (about 10 minutes):
+4. **If Microsoft Defender flags the exe:** submit that exact release file (repeat for any later release that gets
+   flagged):
    1. Open https://www.microsoft.com/en-us/wdsi/filesubmission and sign in with a Microsoft account.
    2. Choose **Software developer**, then **Microsoft Defender Antivirus**.
    3. Click **Browse** and pick `Laptap-Battery-Logger.exe` from that folder.
@@ -53,6 +54,10 @@ Your **primary** key stays on this PC, locked to your Windows user. Nobody else 
   `Laptap Battery Logger.exe` again. (This only happens if a stick was pulled out in the split second of switching.)
 - If an antivirus flags the exe: don't turn the antivirus off. Restore the file from quarantine and tell the Manager
   which antivirus it was and what it said.
+- If Smart App Control blocks the exe, don't disable it or ask staff to bypass it. The release executable is currently
+  not Authenticode-signed; the signature on `update.json` only verifies the app's self-update metadata. A trusted
+  Authenticode code-signing certificate is the long-term way to establish publisher identity, though it cannot
+  guarantee that every warning disappears immediately.
 
 ## Keys: change, loss, theft
 

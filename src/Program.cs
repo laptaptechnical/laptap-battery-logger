@@ -190,7 +190,7 @@ static class Program
             en.Tick();
             en.Publish();
 
-            // ---- A: check + download in the background once per start, only while Ready/Done (C3: the window is already open) ----
+            // ---- A: background update check; offline probes retry while idle and pause during a test ----
             bool stopping = false;
             if (!noUpdate)
             {
@@ -201,7 +201,22 @@ static class Program
                 o.Stopping = delegate { return stopping; };
                 ThreadStart check = delegate
                 {
-                    try { string r = Updater.CheckAndStage(o); Updater.Log("check: " + r); en.RequestPublish = true; }
+                    try
+                    {
+                        while (!stopping)
+                        {
+                            string r = Updater.CheckAndStage(o);
+                            Updater.Log("check: " + r); en.RequestPublish = true;
+                            if (r != "check-failed") return;
+
+                            while (!stopping)
+                            {
+                                if (!o.Idle()) { Thread.Sleep(1000); continue; }
+                                if (Updater.CanReachUpdateService(o.BaseUrl)) { Updater.Note = null; break; }
+                                Thread.Sleep(UpdateConfig.OfflineRetryIntervalMs);
+                            }
+                        }
+                    }
                     catch (Exception ex) { Updater.Log("check crashed: " + ex.Message); Updater.SetPhase("idle", null, null); }
                 };
                 int retried = 0;

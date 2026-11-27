@@ -328,6 +328,7 @@ static class V15Tests
         {
             Eq("off", Updater.CheckAndStage(Opts(exe, "")), "empty BaseUrl → updater off");
             Eq("not-https", Updater.CheckAndStage(Opts(exe, "http://example.com/x")), "non-HTTPS BaseUrl refused");
+            Ok(Updater.CanReachUpdateService(srv.Base), "a 404 from the update endpoint still means the service is reachable");
             Updater.CheckOptions just = Opts(exe, srv.Base); just.UpdatedThisStart = true;
             Eq("just-updated", Updater.CheckAndStage(just), "skipped right after an update");
 
