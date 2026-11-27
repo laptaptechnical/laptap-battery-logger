@@ -137,6 +137,6 @@ if (Test-Path $next) {   # planned rotation: the new key takes over after this r
 }
 foreach ($f in 'signing.use-backup', 'signing.bump') { $x = Join-Path $keyDir $f; if (Test-Path $x) { Remove-Item $x } }
 $a = Read-Host 'Push to GitHub now? (Y/N)'
-if ($a -match '^[Yy]') { git push origin HEAD; git push origin "v$Version" }
-else { Write-Host "Not pushed. Later: git push origin HEAD; git push origin v$Version" }
+if ($a -match '^[Yy]') { git push origin HEAD; git push origin "refs/tags/v$Version" }   # full ref: a branch may share the tag name
+else { Write-Host "Not pushed. Later: git push origin HEAD; git push origin refs/tags/v$Version" }
 Start-Process explorer.exe -ArgumentList "`"$dir`""
